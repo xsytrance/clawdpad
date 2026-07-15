@@ -15,6 +15,7 @@ Commands:
   anim <celebrate>                     jump with both arms up
   play [jingle|hello|chime]            play a melody (jingle also jumps)
   hum <on|off>                         ambient pad while thinking
+  size <full|mini>                     big Clawd, or chibi-Clawd roaming
   demo                                 tour every mood (for showing friends)
   status                               mood · block · energy · sessions
   sessions                             print the session registry
@@ -143,6 +144,8 @@ def main(argv):
             print(reply.get("error"), file=sys.stderr)
     elif cmd == "hum":
         send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
+    elif cmd == "size":
+        send({"cmd": "size", "arg": (args[0] if args else "full").lower()})
     elif cmd == "demo":
         import time
         steps = [

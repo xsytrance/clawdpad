@@ -1,0 +1,104 @@
+# clawdpad companion app — design
+
+*2026-07-15. The phone app for keeping up with your Clawd: stats, feeding,
+items, his home, play, friends — and talking to him. Android first (Pixel),
+iOS close behind. Nothing goes live until Rod says so.*
+
+## Separate repo: yes
+
+**`clawdpad-app`** should be its own repository. Different toolchain,
+language, release cadence, and store-review lifecycle; the daemon repo
+stays a clean, reviewable Python project a stranger can audit in one
+sitting. The contract between them is the daemon's HTTP API — version that,
+not a monorepo.
+
+**Recommended stack: Expo (React Native).** One codebase for Android + iOS,
+fastest path to a working APK for a Pixel, OTA updates while iterating,
+and a dev-client escape hatch for native modules (BLE, if the app ever
+becomes a block host itself — see ROADMAP BLE-3).
+
+## How it connects
+
+The app talks to **clawdpadd**, never the block:
+
+- Same Wi-Fi / Tailscale: `http://<host>:8137` with the Bearer token
+  (pair by QR code: `blockctl pair-qr` prints the URL+token as a QR —
+  daemon addition, trivial).
+- Away from home: the ntfy topic (already wired) for commands, plus a
+  lightweight `GET /status` poll or ntfy state echoes for the dashboard.
+
+## Screens (v1)
+
+1. **Home / him** — live mood, energy, size toggle (**full ↔ mini**, the
+   API shipped today: `{"cmd":"size","arg":"mini"}`), battery, a
+   render-mirror of the glass (the daemon can serve the current frame as
+   JSON/PNG at `GET /frame` — small addition, makes the app feel alive).
+2. **Stats** — level, XP, hunger curve over time, meals, sessions he's
+   lived through, uptime streaks. (Daemon addition: a tiny ring-buffer
+   history endpoint, `GET /history`.)
+3. **Feed** — camera/gallery/notes → feed items. He eats, gains XP, the
+   glass shows him munching (new `eat` pose: mini walks to a food pixel,
+   chomps). See "the soul" below.
+4. **Home & items** — his room in mini mode: place a bed, food bowl,
+   plant, rug (room JSON the daemon renders behind roaming mini-Clawd).
+   Items = the Pro props system's first customers; the app is the
+   inventory UI.
+5. **Play** — ball toss (a bouncing pixel he chases — physics on the
+   daemon, flick gesture on the phone), laser-dot chase (drag your finger
+   on the phone, he chases the dot on the glass — remote petting, works
+   from anywhere), tug-of-war against your real finger on the block.
+6. **Friends** — the Duet surface: befriend Charles, pick a scene
+   (dance/fight/pair-code), send your Clawd traveling (Pro).
+7. **Talk** ⭐ — chat with *your* Clawd. On the glass: leaning poses +
+   melodic babble. In the app: his actual words.
+
+## "Connect to my Claude account" — the Talk feature
+
+The right integration is **Sign in with Claude / the Claude Agent SDK**:
+the user OAuths with their own Claude account, and the app makes Claude
+calls on their subscription — no server of ours, no API keys to manage.
+Clawd's persona prompt (a small creature who lives on a Lightpad, knows
+his stats, remembers his diary/meals via the daemon's status+history
+endpoints as tool calls) turns the chat into *him*. Claude Code users get
+extra magic: he can genuinely answer "what did we work on today?" from the
+session registry. Needs verification of the current OAuth/SDK terms when
+we build it — the design assumes only: user-owned auth, app-side calls.
+
+## The soul, standalone (prereq for feeding)
+
+Today the soul is mirrored from dazzler (read-only, one soul two bodies).
+App users won't have dazzler, so clawdpad grows a **native soul module**:
+same schema (hunger/xp/level/meals/mood), same tick rules, stored in
+`~/.local/state/clawdpad/soul.json` — active only when the dazzler mirror
+is absent, so Rod's rig keeps dazzler as the single owner. Feed API:
+`POST /feed {"kind": "photo|note", "caption": ...}` → hunger up, XP, munch
+pose, item logged for the diary/stats screen.
+
+## API additions the app needs from the daemon (small, Basic-friendly)
+
+| endpoint | purpose |
+|---|---|
+| `{"cmd":"size"}` | ✅ shipped today |
+| `GET /frame` | live 15×15 mirror for the app's home screen |
+| `GET /history` | stats screen (ring buffer: mood/energy/hunger samples) |
+| `POST /feed` | native-soul feeding |
+| `{"cmd":"room", ...}` | place/remove furniture (mini mode) |
+| `{"cmd":"ball"} / {"cmd":"dot", "x":…, "y":…}` | play modes |
+| `blockctl pair-qr` | QR pairing |
+
+## My additions (opinionated)
+
+- **Push notifications via ntfy** (no Firebase needed for v1): "Clawd is
+  hungry", "battery 15%", "Charles's Clawd is at the door", "he leveled
+  up while you were out". The ntfy app or our app subscribes to the same
+  topic the daemon already publishes to.
+- **Widget/watch tile**: his current pose + mood as a 1×1 home-screen
+  widget. Glanceable creature.
+- **Do-not-disturb inheritance**: app knows your phone's DND; tells the
+  daemon to hold jingles/whispers (quiet hours already exist — this
+  automates them).
+- **Guest QR**: coworkers scan a QR and get a read-only live view + one
+  free "wave at him" button. Maximum office virality, zero risk.
+- **Explicitly not in the app**: streaming the glass as video, text on the
+  glass, or any remote control that would make him a gadget instead of a
+  creature. The app keeps up with him; it doesn't puppet him.

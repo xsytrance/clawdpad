@@ -90,6 +90,11 @@ CLAWD_LEGS = ((3, 11, 4, 13), (5, 11, 6, 13),
               (9, 11, 10, 13), (11, 11, 12, 13))
 CLAWD_EYES = ((4, 5), (10, 5))                   # top px of each 1x2 eye hole
 
+# Mini Clawd (chibi): 5x4 body + 1px arms + 2 legs + 1px eye holes.
+# Small enough to roam the glass like a room — and for duet scenes where
+# two of them need space to interact.
+MINI_W, MINI_H = 5, 5   # body + legs footprint (arms poke 1px each side)
+
 # One soul, two bodies: Clawd's pet state is OWNED by dazzler (petd.py writes
 # it; a systemd timer ticks it). This body only mirrors it — never writes.
 PET_STATE = os.path.expanduser("~/dazzler/state.json")
@@ -134,6 +139,7 @@ class State:
         self.jingle_on_celebrate = True
         self.pet = None             # mirrored from dazzler's state.json
         self.last_say_chime = 0.0
+        self.size = "full"          # "full" | "mini" (config "size", cmd size)
 
     def prune(self, now):
         for sid in list(self.sessions):
@@ -229,6 +235,11 @@ class State:
                     self.celebrate(now)
             elif cmd == "hum":
                 self.hum_enabled = str(msg.get("arg", "on")).lower() == "on"
+            elif cmd == "size":
+                arg = str(msg.get("arg", "full")).lower()
+                if arg not in ("full", "mini"):
+                    return {"ok": False, "error": f"unknown size: {arg}"}
+                self.size = arg
             elif cmd == "clear":
                 self.notify_until = 0.0
                 self.notify_text = ""
@@ -238,6 +249,7 @@ class State:
             else:
                 return {"ok": False, "error": f"unknown cmd: {cmd}"}
         return {"ok": True, "mood": self.mood(now), "block": dict(self.block),
+                "size": self.size,
                 "energy": round(self.energy, 3),
                 "pet": dict(self.pet) if self.pet else None,
                 "notify_text": self.notify_text if now < self.notify_until else "",
@@ -519,6 +531,68 @@ def _clawd(brightness, dx=0, dy=0, eyes="open", look=0,
     return buf
 
 
+def _mini(brightness, px, py, eyes="open", look=0, arms="down"):
+    """Render chibi-Clawd with his body's top-left at (px, py).
+
+    Same soul, quarter the pixels: 5x4 body, 1px arm nubs (raised when
+    arms="up"), two legs, 1px eye holes (a blink just closes them).
+    """
+    buf = bytearray(W * H * 3)
+    col = tuple(min(255, int(c * brightness)) for c in CORAL)
+    for y in range(4):
+        for x in range(5):
+            _blit(buf, px + x, py + y, col)
+    ay = py + (0 if arms == "up" else 1)
+    _blit(buf, px - 1, ay, col)
+    _blit(buf, px + 5, ay, col)
+    _blit(buf, px + 1, py + 4, col)   # legs
+    _blit(buf, px + 3, py + 4, col)
+    if eyes == "open":
+        _blit(buf, px + 1 + look, py + 1, (0, 0, 0))
+        _blit(buf, px + 3 + look, py + 1, (0, 0, 0))
+    return buf
+
+
+def _mini_frame(mood, t, phase, touch, vigor):
+    """Mini-mode composition: a small Clawd roaming a big room."""
+    blink = (t % 4.3) < 0.13
+    if mood == "celebrate":
+        bounce = abs(math.sin(t * math.pi / 0.6))
+        return _mini(1.0, 5, 6 - round(3 * bounce), "open", 0, arms="up")
+    if mood == "notify":
+        pulse = (0.78 + 0.22 * math.sin(t * 2 * math.pi * 1.4)) \
+            * max(0.7, vigor)
+        arms = "up" if (t * 2.4) % 1.0 < 0.5 else "down"
+        return _mini(pulse, 5, 5, "closed" if blink else "open", 0, arms)
+    if mood == "sleep":
+        breath = 0.26 + 0.08 * math.sin(t * 2 * math.pi / 9.0)
+        peek = (t % 9.7) < 0.4
+        if touch is not None:
+            breath = min(0.7, breath + 0.45 * touch[2])
+            peek = True
+        return _mini(breath, 8, 8, "open" if peek else "closed", 0)
+    if touch is not None:  # he walks toward your finger, glowing
+        tx, ty, tz = touch
+        px = max(1, min(9, round(tx * (W - 1)) - 2))
+        py = max(0, min(9, round(ty * (H - 1)) - 2))
+        return _mini(min(1.0, 0.85 + 0.35 * tz) * vigor, px, py,
+                     "closed" if blink else "open", 0)
+    if mood == "thinking":  # pacing a shorter beat, same energy clock
+        px = 5 + round(3.5 * math.sin(phase * 0.5))
+        look = 1 if math.cos(phase * 0.5) > 0.25 else \
+            (-1 if math.cos(phase * 0.5) < -0.25 else 0)
+        return _mini(0.9, px, 6, "closed" if (t % 2.1) < 0.09 else "open",
+                     look)
+    # awake: roaming the room on slow, wandering paths
+    px = max(1, min(9, round(5 + 4.2 * math.sin(t * 0.09))))
+    py = max(0, min(9, round(4 + 3.2 * math.sin(t * 0.067 + 1.3))))
+    brightness = (0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)) * vigor
+    if vigor <= PET_VIGOR["starving"]:
+        brightness *= 0.88 + 0.12 * math.sin(t * 13.7)
+    look = round(0.9 * math.sin(t * 0.31))
+    return _mini(brightness, px, py, "closed" if blink else "open", look)
+
+
 def _touch_pose(touch):
     """Shared petting math: lean offsets, gaze, pressure glow."""
     tx, ty, tz = touch
@@ -607,6 +681,10 @@ def frame_celebrate(rel):
 
 def build_frame(mood, t, phase, state, touch):
     now = time.time()
+    with state.lock:
+        size = state.size
+    if size == "mini":
+        return _mini_frame(mood, t, phase, touch, state.pet_vigor())
     notice = state.notice_look(now)
     if mood == "thinking":
         return frame_thinking(phase, t, touch, notice)
@@ -894,6 +972,8 @@ def main():
     state.player = Player()
     state.hum_enabled = bool(cfg.get("thinking_hum", False))
     state.jingle_on_celebrate = bool(cfg.get("jingle_on_celebrate", True))
+    if cfg.get("size") in ("full", "mini"):
+        state.size = cfg["size"]
     # pre-render all sounds off the hot path so play() never blocks the lock
     threading.Thread(
         target=lambda: [state.player._wav(n)

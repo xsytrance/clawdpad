@@ -40,6 +40,12 @@ scene leader. Guest identity: Charles's block carries its serial — his
 Clawd can render subtly his (a different eye-blink rhythm, a one-pixel
 accessory), so it's *his* creature visiting, not a clone.
 
+Scenes render **mini Clawds** (`_mini()`, shipped 2026-07-15 — 5x4 body,
+chibi proportions, `blockctl size mini`): full-size Clawd fills a whole
+block, so duets need small actors with room to move. Solo mini mode is the
+same sprite roaming his block like a room (and the surface the companion
+app's home/items build on — see APP.md).
+
 Implementation notes (all within the current stack):
 - blocksd: `set_led_data(uid, …)` is already per-device; needs verifying
   that `_load_led_program` runs for DNA-relayed guests (it should — it's
