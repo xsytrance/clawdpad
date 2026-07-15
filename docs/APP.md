@@ -30,7 +30,8 @@ The app talks to **clawdpadd**, never the block:
 ## Screens (v1)
 
 1. **Home / him** — live mood, energy, size toggle (**full ↔ mini**, the
-   API shipped today: `{"cmd":"size","arg":"mini"}`), battery, a
+   API shipped today: `{"cmd":"size","arg":"mini"}`; on-glass gesture:
+   triple-tap), battery, a
    render-mirror of the glass (the daemon can serve the current frame as
    JSON/PNG at `GET /frame` — small addition, makes the app feel alive).
 2. **Stats** — level, XP, hunger curve over time, meals, sessions he's

@@ -30,7 +30,10 @@ Recommended next, in order:
    stretch (arms up + tall body) every ~10 min, a long look left then right,
    sitting down (body drops 2px, legs tucked) after an hour of idle. Keep
    them rare — scarcity is what makes them alive.
-6. **Sad pose** — the one missing emotion: slumped body (dy +1), drooped
+6. **Pinch to resize** — triple-tap toggles full/mini today; the block is
+   multitouch, so a two-finger pinch (shrink) / spread (grow) gesture is
+   the natural upgrade. Needs per-index touch tracking.
+7. **Sad pose** — the one missing emotion: slumped body (dy +1), drooped
    arms (+2), heavy blinks. Used sparingly: repeated command failures,
    starving soul. (This was the old red-flash; now it's a feeling.)
 

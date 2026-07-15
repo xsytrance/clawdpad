@@ -292,15 +292,24 @@ class State:
                 self.touch[0:3] = [x, y, z]
 
     def touch_end(self, now):
-        """Tap bookkeeping. Returns "jump" when a double-tap celebrates."""
+        """Tap bookkeeping.
+
+        1 tap → he looks at you · 2 taps → celebrate jump ·
+        3 taps → toggle full/mini (the jump morphs into the resize).
+        """
         with self.lock:
             held, self.touch = self.touch, None
             if held is None or now - held[3] > TAP_MAX_SECONDS:
                 return None  # that was petting, not a tap
             self.taps = [t for t in self.taps
                          if now - t < DOUBLE_TAP_WINDOW] + [now]
-            if len(self.taps) >= 2:
+            if len(self.taps) >= 3:
                 self.taps.clear()
+                self.notice = None
+                self.oneshot_until = 0.0  # cancel the double-tap jump
+                self.size = "mini" if self.size == "full" else "full"
+                return f"resize:{self.size}"
+            if len(self.taps) == 2:
                 self.notice = None
                 self.celebrate(now)
                 return "jump"
@@ -829,10 +838,15 @@ def touch_loop(state):
                         elif action == "move":
                             state.touch_move(x, y, z)
                         elif action == "end":
-                            if state.touch_end(now) == "jump":
+                            result = state.touch_end(now)
+                            if result == "jump":
                                 log("double-tap → celebrate")
                                 if state.player and state.jingle_on_celebrate:
                                     state.player.auto_jingle(now)
+                            elif result and result.startswith("resize:"):
+                                log(f"triple-tap → {result.split(':')[1]}")
+                                if state.player:
+                                    state.player.play("chime")
         except (OSError, ConnectionError):
             time.sleep(5)
 
