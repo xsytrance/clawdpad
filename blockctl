@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""blockctl — talk to Claude's second body (ROLI Lightpad Block M).
+
+Thin client for claudeblockd's Unix socket. Shares claudectl's command
+vocabulary so `claudebody` can fan the same call out to both bodies. Exits 0
+silently when the daemon is not running, so hooks and timers never fail.
+
+Commands:
+  event-hook <start|prompt|stop|end>   consume Claude Code hook JSON on stdin
+  event-hook <pre-tool|post-tool>      tool-call ripples; green wave on passing
+                                       tests, red flash on failing commands
+  mode <awake|thinking|sleep|notify>   set mood manually
+  say "text" [-t SECONDS]              notify pulse (default 30s); tap to ack
+  anim <celebrate>                     play a one-shot animation now
+  glyph [time|sessions|battery|pet]    show an info card (as double-tap does)
+  play [jingle|hello|chime]            play a melody (jingle also fires light)
+  hum <on|off>                         ambient pad while thinking
+  status                               print mood, block, session summary
+  sessions                             print the session registry
+  clear                                clear notify + manual mode
+  where                                print daemon socket path (if alive)
+"""
+
+import json
+import os
+import re
+import socket
+import sys
+
+# tool-class palette: watching the block tells you what kind of work is happening
+RIPPLE_READ = (70, 140, 255)    # Read/Grep/Glob/web — cool blue
+RIPPLE_EDIT = (217, 119, 87)    # Edit/Write — Claude coral
+RIPPLE_RUN = (150, 90, 230)     # Bash — violet
+RIPPLE_OTHER = (110, 110, 130)  # agents, MCP, everything else — dim slate
+GREEN = (60, 220, 110)
+RED = (255, 60, 50)
+
+READ_TOOLS = {"read", "grep", "glob", "webfetch", "websearch", "explore",
+              "toolsearch", "taskget", "tasklist", "taskoutput"}
+EDIT_TOOLS = {"edit", "write", "notebookedit"}
+TEST_RE = re.compile(r"\b(pytest|unittest|npm (run )?test|yarn test|pnpm test"
+                     r"|cargo test|go test|make (test|check)|jest|vitest|tox"
+                     r"|ctest|rspec|phpunit)\b")
+FAIL_RE = re.compile(r"exit code:?\s*[1-9]|\bcommand failed\b")
+
+
+def socket_path():
+    for base in (os.environ.get("XDG_RUNTIME_DIR"), "/tmp"):
+        if base:
+            p = os.path.join(base, "claudeblockd", "claudeblockd.sock")
+            if os.path.exists(p):
+                return p
+    return None
+
+
+def send(msg):
+    """Returns the daemon's reply dict, or None when the daemon is absent."""
+    path = socket_path()
+    if path is None:
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(3.0)
+            sock.connect(path)
+            sock.sendall(json.dumps(msg).encode() + b"\n")
+            buf = b""
+            while b"\n" not in buf:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    return None
+                buf += chunk
+            return json.loads(buf.split(b"\n")[0])
+    except (OSError, ValueError):
+        return None
+
+
+def tool_event(kind, sid, payload):
+    """Map a Pre/PostToolUse hook payload to a one-shot block animation."""
+    tool = str(payload.get("tool_name") or "").lower()
+    if kind == "pre-tool":
+        if tool in EDIT_TOOLS:
+            color = RIPPLE_EDIT
+        elif tool == "bash":
+            color = RIPPLE_RUN
+        elif tool in READ_TOOLS:
+            color = RIPPLE_READ
+        else:
+            color = RIPPLE_OTHER
+        send({"cmd": "event", "kind": "ripple", "color": color, "sid": sid})
+        return
+    # post-tool: only command outcomes get a verdict on the glass
+    if tool != "bash":
+        return
+    resp = payload.get("tool_response")
+    if isinstance(resp, dict):
+        text = " ".join(str(v) for v in resp.values() if isinstance(v, str))
+        interrupted = bool(resp.get("interrupted"))
+    else:
+        text, interrupted = str(resp or ""), False
+    if interrupted or FAIL_RE.search(text[-2000:].lower()):
+        send({"cmd": "event", "kind": "flash", "color": RED, "sid": sid})
+        return
+    command = str((payload.get("tool_input") or {}).get("command") or "")
+    if TEST_RE.search(command):
+        send({"cmd": "event", "kind": "wave", "color": GREEN, "sid": sid})
+
+
+def main(argv):
+    if not argv:
+        print(__doc__)
+        return 0
+    cmd, args = argv[0], argv[1:]
+
+    if cmd == "where":
+        reply = send({"cmd": "ping"})
+        if reply:
+            print(socket_path())
+        return 0
+
+    if cmd == "event-hook":
+        kind = args[0] if args else "prompt"
+        if kind not in ("start", "prompt", "stop", "end",
+                        "pre-tool", "post-tool"):
+            print(f"unknown hook kind: {kind}", file=sys.stderr)
+            return 1
+        try:
+            payload = json.load(sys.stdin)
+        except (ValueError, OSError):
+            payload = {}
+        sid = (payload.get("session_id") or "manual")[:8]
+        if kind in ("pre-tool", "post-tool"):
+            tool_event(kind, sid, payload)
+            return 0
+        cwd = payload.get("cwd") or ""
+        project = os.path.basename(cwd.rstrip("/")) if cwd else "somewhere"
+        send({"cmd": "event-hook", "kind": kind, "sid": sid, "project": project})
+        return 0
+
+    if cmd == "mode":
+        arg = (args[0] if args else "awake").lower()
+        if arg not in ("awake", "thinking", "sleep", "notify"):
+            print(f"unknown mode: {arg}", file=sys.stderr)
+            return 1
+        send({"cmd": "mode", "arg": arg})
+    elif cmd == "say":
+        seconds = 30.0
+        if "-t" in args:
+            i = args.index("-t")
+            seconds = float(args[i + 1])
+            args = args[:i] + args[i + 2:]
+        send({"cmd": "say", "arg": " ".join(args), "seconds": seconds})
+    elif cmd == "anim":
+        send({"cmd": "anim", "arg": (args[0] if args else "celebrate").lower()})
+    elif cmd == "glyph":
+        send({"cmd": "glyph", "arg": (args[0] if args else "time").lower()})
+    elif cmd == "play":
+        reply = send({"cmd": "play", "arg": (args[0] if args else "jingle").lower()})
+        if reply and not reply.get("ok"):
+            print(reply.get("error"), file=sys.stderr)
+    elif cmd == "hum":
+        send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
+    elif cmd == "clear":
+        send({"cmd": "clear"})
+    elif cmd in ("status", "sessions"):
+        reply = send({"cmd": "status"})
+        if reply is None:
+            print("claudeblockd not running")
+            return 0
+        if cmd == "status":
+            blk = reply.get("block", {})
+            where = (f"{blk.get('serial')} battery {blk.get('battery')}%"
+                     if blk.get("connected") else "block absent")
+            print(f"mood {reply.get('mood')}  ·  {where}  ·  "
+                  f"energy {reply.get('energy', 0):.2f}  ·  "
+                  f"{len(reply.get('sessions', {}))} session(s)  ·  "
+                  f"daemon up {reply.get('uptime')}s")
+            if pet := reply.get("pet"):
+                print(f"soul: level {pet['level']}  ·  {pet['mood']} "
+                      f"(hunger {pet['hunger']:.0f})  ·  xp {pet['xp']}")
+            if reply.get("notify_text"):
+                print(f"notify: {reply['notify_text']}")
+        else:
+            for sid, s in reply.get("sessions", {}).items():
+                print(f"{sid}  {s['project']:<20} {s['mode']:<9} {s['age']}s ago")
+    elif cmd in ("greeting", "note"):
+        pass  # dazzler-only vocabulary; accept silently so claudebody can fan out
+    else:
+        print(f"unknown command: {cmd}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

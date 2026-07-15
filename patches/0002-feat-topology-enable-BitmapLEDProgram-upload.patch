@@ -1,0 +1,68 @@
+From f08016c6e962462663b44a45232d2cf49c02f62f Mon Sep 17 00:00:00 2001
+From: xsytrance <rod.agenor@gmail.com>
+Date: Wed, 15 Jul 2026 05:38:43 -0400
+Subject: [PATCH 2/2] feat(topology): enable BitmapLEDProgram upload
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With jump resolution fixed, the stock bitmap LED program runs fine on
+firmware v1.1.0 — getHeapBits (0x40) and dupOffset (0x18 operand form)
+both execute. Re-enables the upload that _load_led_program had disabled.
+Verified rendering end-to-end on a Lightpad Block M.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ src/blocksd/topology/device_group.py | 20 ++++++++++----------
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/src/blocksd/topology/device_group.py b/src/blocksd/topology/device_group.py
+index 2667b7e..b9a0440 100644
+--- a/src/blocksd/topology/device_group.py
++++ b/src/blocksd/topology/device_group.py
+@@ -27,7 +27,7 @@ from blocksd.device.registry import (
+     heap_size_for_block,
+     supports_bitmap_led_program,
+ )
+-from blocksd.littlefoot.programs import bitmap_led_program_size
++from blocksd.littlefoot.programs import bitmap_led_program, bitmap_led_program_size
+ from blocksd.protocol.builder import (
+     build_begin_api_mode,
+     build_config_request,
+@@ -350,11 +350,14 @@ class DeviceGroup:
+         return True
+ 
+     def _load_led_program(self, uid: int) -> None:
+-        """Load LED test program into a device's heap.
++        """Upload the BitmapLEDProgram into a device's heap.
+ 
+-        TODO: Replace with proper BitmapLEDProgram once firmware opcode
+-        compatibility is resolved (getHeapBits 0x40 and dupOffset_01 0x11
+-        are not supported on firmware v1.1.0).
++        Upstream disabled this believing firmware v1.1.0 lacks getHeapBits
++        (0x40) / dupOffset_01 (0x11). The actual failure was assembler jump
++        targets being code-relative instead of program-relative (fixed in
++        littlefoot/assembler.py) — the opcode table has been stable since
++        JUCE 4.3.0 (2016), and the program runs fine on firmware v1.1.0
++        once jumps resolve correctly. Verified on Lightpad Block M.
+         """
+         dev = self._devices.get(uid)
+         heap = self._heaps.get(uid)
+@@ -362,12 +365,9 @@ class DeviceGroup:
+             return
+         if not supports_bitmap_led_program(dev.block_type):
+             return
+-        # TODO: Replace with proper BitmapLEDProgram using firmware-safe opcodes
+-        # For now, skip program upload — device keeps its default LED animation.
+-        return
+-        program = _build_green_fill()
++        program = bitmap_led_program()
+         heap.set_bytes(0, program)
+-        log.debug("Loaded green fill program (%d bytes) for %s", len(program), dev.serial)
++        log.info("Loaded BitmapLEDProgram (%d bytes) for %s", len(program), dev.serial)
+ 
+     def _flush_heaps(self, now: float) -> None:
+         """Send pending heap changes and retransmit timed-out packets."""
+-- 
+2.53.0
+

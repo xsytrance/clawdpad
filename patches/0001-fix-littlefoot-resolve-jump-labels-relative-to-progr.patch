@@ -1,0 +1,51 @@
+From ac9b2c778b23891ff451e42c41cf55aa10d269f3 Mon Sep 17 00:00:00 2001
+From: xsytrance <rod.agenor@gmail.com>
+Date: Wed, 15 Jul 2026 05:38:43 -0400
+Subject: [PATCH 1/2] fix(littlefoot): resolve jump labels relative to program
+ header, not code section
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The LittleFoot VM computes programCounter = programBase + addr, where
+programBase is the start of the program header (roli_LittleFootRunner.h).
+The assembler resolved labels relative to the code section, so every jump
+landed header+functable bytes short — the interpreter faulted
+'Illegal instruction' on every repaint and devices fell back to the
+factory app. This is the real cause behind the firmware-v1.1.0 opcode
+theory in device_group.py's TODO: the opcode table is unchanged since
+JUCE 4.3.0 (2016). Verified on a Lightpad Block M (firmware 1.1.x).
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ src/blocksd/littlefoot/assembler.py | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/src/blocksd/littlefoot/assembler.py b/src/blocksd/littlefoot/assembler.py
+index 4b8cd85..e6491cc 100644
+--- a/src/blocksd/littlefoot/assembler.py
++++ b/src/blocksd/littlefoot/assembler.py
+@@ -292,9 +292,18 @@ class BytecodeAssembler:
+         self._code.extend(struct.pack("<i", value))
+ 
+     def _resolve_labels(self) -> None:
+-        """Patch all label references with actual code offsets."""
++        """Patch all label references with program-relative addresses.
++
++        The VM's jump() sets programCounter = programBase + addr, where
++        programBase is the start of the program HEADER (see
++        roli_LittleFootRunner.h) — so label targets must be offset by the
++        header + function table size. Code-relative targets land jumps in
++        the function table, and the interpreter faults with
++        "Illegal instruction" on every repaint.
++        """
++        code_base = _HEADER_SIZE + len(self._functions) * _FUNC_ENTRY_SIZE
+         for fixup in self._fixups:
+             if fixup.label not in self._labels:
+                 raise ValueError(f"Undefined label: {fixup.label!r}")
+-            target = self._labels[fixup.label]
++            target = code_base + self._labels[fixup.label]
+             struct.pack_into("<h", self._code, fixup.code_offset, target)
+-- 
+2.53.0
+
