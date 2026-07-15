@@ -21,9 +21,15 @@ becomes a block host itself — see ROADMAP BLE-3).
 
 The app talks to **clawdpadd**, never the block:
 
-- Same Wi-Fi / Tailscale: `http://<host>:8137` with the Bearer token
-  (pair by QR code: `blockctl pair-qr` prints the URL+token as a QR —
-  daemon addition, trivial).
+- Same Wi-Fi / Tailscale: `http://<host>:8137` with the Bearer token.
+  Pairing: **the glass itself becomes the QR code** — shipped 2026-07-15:
+  `blockctl qr <data>` renders a Micro QR (format M3 is *exactly* 15x15
+  modules; the dark bezel is the quiet zone; lit-pixels-as-dark-modules =
+  an inverted QR). M3 alphanumeric tops out at 14 chars / 23 digits, so
+  the pairing flow is: block shows a short numeric pair-code → app scans
+  (zxing-cpp reads Micro QR + inverted) → app finds the daemon on the LAN
+  (mDNS) → `POST /pair {code}` → daemon returns the real token. Stock
+  camera apps may or may not read Micro QR — our app always will.
 - Away from home: the ntfy topic (already wired) for commands, plus a
   lightweight `GET /status` poll or ntfy state echoes for the dashboard.
 

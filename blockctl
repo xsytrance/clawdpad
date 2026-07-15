@@ -16,6 +16,7 @@ Commands:
   play [jingle|hello|chime]            play a melody (jingle also jumps)
   hum <on|off>                         ambient pad while thinking
   size <full|mini>                     big Clawd, or chibi-Clawd roaming
+  qr [text] [-t SECONDS]               the glass becomes a Micro QR (M3=15x15)
   demo                                 tour every mood (for showing friends)
   status                               mood · block · energy · sessions
   sessions                             print the session registry
@@ -146,6 +147,16 @@ def main(argv):
         send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
     elif cmd == "size":
         send({"cmd": "size", "arg": (args[0] if args else "full").lower()})
+    elif cmd == "qr":
+        seconds = 30.0
+        if "-t" in args:
+            i = args.index("-t")
+            seconds = float(args[i + 1])
+            args = args[:i] + args[i + 2:]
+        reply = send({"cmd": "qr", "arg": args[0] if args else "CLAWDPAD",
+                      "seconds": seconds})
+        if reply and not reply.get("ok"):
+            print(reply.get("error"), file=sys.stderr)
     elif cmd == "demo":
         import time
         steps = [

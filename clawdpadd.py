@@ -140,6 +140,8 @@ class State:
         self.pet = None             # mirrored from dazzler's state.json
         self.last_say_chime = 0.0
         self.size = "full"          # "full" | "mini" (config "size", cmd size)
+        self.qr_until = 0.0         # Micro QR takeover window
+        self.qr_matrix = None       # 15x15 bool rows
 
     def prune(self, now):
         for sid in list(self.sessions):
@@ -152,6 +154,8 @@ class State:
     def mood(self, now):
         with self.lock:
             self.prune(now)
+            if now < self.qr_until and self.qr_matrix:
+                return "qr"
             if now < self.oneshot_until:
                 return "celebrate"
             if now < self.notify_until:
@@ -240,10 +244,36 @@ class State:
                 if arg not in ("full", "mini"):
                     return {"ok": False, "error": f"unknown size: {arg}"}
                 self.size = arg
+            elif cmd == "qr":
+                # The glass IS a Micro QR: format M3 is exactly 15x15
+                # modules, and the dark bezel doubles as the quiet zone.
+                # Lit = dark modules (inverted QR; scanners handle it).
+                try:
+                    import segno
+                except ImportError:
+                    return {"ok": False,
+                            "error": "pip install segno for QR support"}
+                data = str(msg.get("arg", "CLAWDPAD"))
+                try:
+                    q = segno.make(data, micro=True)
+                except Exception as e:
+                    return {"ok": False, "error": f"cannot encode: {e}"}
+                m = [list(row) for row in q.matrix]
+                if len(m) > H or len(m[0]) > W:
+                    return {"ok": False,
+                            "error": f"payload too big for M3 ({data!r})"}
+                pad = (H - len(m)) // 2  # M1/M2 come out smaller; center them
+                grid = [[False] * W for _ in range(H)]
+                for y, row in enumerate(m):
+                    for x, v in enumerate(row):
+                        grid[y + pad][x + pad] = bool(v)
+                self.qr_matrix = grid
+                self.qr_until = now + float(msg.get("seconds", 30))
             elif cmd == "clear":
                 self.notify_until = 0.0
                 self.notify_text = ""
                 self.manual = None
+                self.qr_until = 0.0
             elif cmd in ("status", "ping"):
                 pass
             else:
@@ -551,7 +581,7 @@ def _mini(brightness, px, py, eyes="open", look=0, arms="down"):
     for y in range(4):
         for x in range(5):
             _blit(buf, px + x, py + y, col)
-    ay = py + (0 if arms == "up" else 1)
+    ay = py + (0 if arms == "up" else 2)
     _blit(buf, px - 1, ay, col)
     _blit(buf, px + 5, ay, col)
     _blit(buf, px + 1, py + 4, col)   # legs
@@ -690,6 +720,15 @@ def frame_celebrate(rel):
 
 def build_frame(mood, t, phase, state, touch):
     now = time.time()
+    if mood == "qr":
+        buf = bytearray(W * H * 3)
+        with state.lock:
+            grid = state.qr_matrix
+        for y in range(H):
+            for x in range(W):
+                if grid[y][x]:
+                    _blit(buf, x, y, (235, 235, 235))
+        return buf
     with state.lock:
         size = state.size
     if size == "mini":
