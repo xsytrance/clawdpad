@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clawdpad control</title>
+<style>
+  :root { --coral:#D97757; --bg:#171310; --card:#211b17; --ink:#efe6df; --dim:#a89a8f; }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,sans-serif;
+         max-width:520px; margin:0 auto; padding:2rem 1rem; }
+  h1 { color:var(--coral); margin:0 0 1rem; }
+  input { width:100%; padding:.6rem; margin:.25rem 0; background:var(--card);
+          border:1px solid #3a2f28; border-radius:8px; color:var(--ink); }
+  button { padding:.8rem; margin:.25rem; background:var(--card); color:var(--ink);
+           border:1px solid var(--coral); border-radius:10px; font-size:1rem; cursor:pointer; }
+  button:active { background:var(--coral); color:var(--bg); }
+  #grid { display:flex; flex-wrap:wrap; margin-top:1rem; }
+  #status { color:var(--dim); margin-top:1rem; white-space:pre-line; min-height:3em; }
+  label { color:var(--dim); font-size:.85rem; }
+</style>
+</head>
+<body>
+<h1>clawdpad control</h1>
+<p style="color:var(--dim)">Works from any browser on the host machine (or the
+LAN). Pair with a running <code>clawdpadd</code> — see CHARLES.md for the
+Mac host setup.</p>
+
+<label>daemon URL</label>
+<input id="host" value="http://127.0.0.1:8137">
+<label>token (from ~/.config/clawdpad/config.json)</label>
+<input id="token" placeholder="Bearer token" type="password">
+
+<div id="grid">
+  <button onclick="cmd({cmd:'anim',arg:'celebrate'})">🎉 Jump</button>
+  <button onclick="cmd({cmd:'play',arg:'jingle'})">🎵 Jingle</button>
+  <button onclick="cmd({cmd:'mode',arg:'awake'})">🐾 Summon</button>
+  <button onclick="cmd({cmd:'mode',arg:'thinking'})">💭 Pace</button>
+  <button onclick="cmd({cmd:'mode',arg:'sleep'})">😴 Sleep</button>
+  <button onclick="cmd({cmd:'size',arg:'full'})">🐾 Full</button>
+  <button onclick="cmd({cmd:'size',arg:'mini'})">🐜 Mini</button>
+  <button onclick="cmd({cmd:'qr',arg:'CLAWDPAD'})">🔳 QR</button>
+  <button onclick="cmd({cmd:'hum',arg:'on'})">🎼 Hum on</button>
+  <button onclick="cmd({cmd:'hum',arg:'off'})">🔇 Hum off</button>
+  <button onclick="cmd({cmd:'clear'})">🧹 Clear</button>
+  <button onclick="refresh()">📊 Status</button>
+</div>
+<div style="margin-top:.5rem">
+  <input id="saytext" placeholder="make Clawd ask for you…">
+  <button onclick="cmd({cmd:'say',arg:document.getElementById('saytext').value,seconds:60})">👋 Say</button>
+</div>
+<div id="status">…</div>
+
+<script>
+const $ = id => document.getElementById(id);
+async function api(body, method="POST", path="/") {
+  const r = await fetch($("host").value + path, {
+    method, headers: { "Authorization": "Bearer " + $("token").value,
+                       "Content-Type": "application/json" },
+    body: method === "POST" ? JSON.stringify(body) : undefined });
+  return r.json();
+}
+async function cmd(body) {
+  try {
+    const j = await api(body);
+    $("status").textContent = j.ok ? `ok — mood ${j.mood}` : `error: ${j.error}`;
+  } catch (e) { $("status").textContent = "unreachable: " + e; }
+}
+async function refresh() {
+  try {
+    const j = await api(null, "GET", "/status");
+    const pet = j.pet ? `\nsoul: level ${j.pet.level} · ${j.pet.mood} (hunger ${Math.round(j.pet.hunger)})` : "";
+    $("status").textContent =
+      `mood ${j.mood} · size ${j.size} · energy ${j.energy}` +
+      `\nblock: ${j.block.connected ? j.block.serial + " · battery " + j.block.battery + "%" : "absent"}` +
+      pet;
+  } catch (e) { $("status").textContent = "unreachable: " + e; }
+}
+</script>
+</body>
+</html>

@@ -109,3 +109,34 @@ pose, item logged for the diary/stats screen.
 - **Explicitly not in the app**: streaming the glass as video, text on the
   glass, or any remote control that would make him a gadget instead of a
   creature. The app keeps up with him; it doesn't puppet him.
+
+
+## Field notes — first live Android host session (2026-07-15, 7-8am)
+
+Built v0.1 as a *player of precomputed SysEx* (tools/make_app_stream.py
+generates handshake + per-mood diff-stream loops from the proven Python
+stack; the Kotlin app is MIDI plumbing + playback + pings). Findings, in
+order of discovery, over BLE via the MIDI BLE Connect bridge:
+
+1. **The transport works.** Serial dump answered (MAC + serial parsed from
+   the hex), GATT writes flowed at full rate, zero errors.
+2. **The block speaks from topology index 9, not 0.** Every command must be
+   addressed there; the serial request works index-less, which masked it.
+   v0.2 must parse the topology response instead of hardcoding.
+3. **Packet counters are device-wide and persist across sessions.** A
+   precomputed stream numbered from 0 only aligns after a block power
+   cycle. (ACK counters visibly count our packets 0,1,2… after a fresh
+   boot.)
+4. **beginAPIMode must be re-sent until the device engages** — blocksd
+   loops it every cycle; a single send is not enough (v0.1.2 courts 8×).
+5. **The wall: firmware appears to gate API mode to USB.** With perfect
+   alignment and persistent courting, the block ACKs everything and still
+   keeps its factory app — consistent with ROLI never supporting BLE for
+   anything but note-MIDI (their docs: Bluetooth on macOS only, for
+   playing). **Pivot: USB-C phone hosting** — Android MIDI treats a
+   USB-attached block identically (the app auto-connects on plug-in as of
+   v0.2), and USB is the transport the protocol is proven on.
+
+Next for v0.2+: parse topology + ACKs (drop the power-cycle requirement),
+live Kotlin Clawd renderer instead of baked loops (touch reactions!),
+foreground service, native BLE probing to confirm the API-gate theory.

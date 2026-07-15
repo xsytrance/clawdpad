@@ -31,7 +31,11 @@ python3 -m venv .venv
 .venv/bin/python clawdpadd.py        # terminal 2 — Clawd appears
 ```
 
-No systemd on a Mac — two terminals is the whole ceremony. Sounds work
+No systemd on a Mac — two terminals is the whole ceremony. **Control
+panel**: open `control.html` (repo root) in any browser → point it at
+`http://127.0.0.1:8137` with the token from `~/.config/clawdpad/config.json`
+(create the config per README) → buttons for jump/jingle/summon/mini/QR/say.
+Zero installs — that's the Mac "app" for day one. Sounds work
 automatically (`afplay` fallback is in). `./blockctl status` works in a
 third terminal.
 

@@ -12,7 +12,7 @@ python3 -m json.tool ~/.config/clawdpad/config.json
   `Authorization: Bearer <token>` and a JSON command body. `GET /status` (same
   header) returns mood/energy/sessions. Plain HTTP — fine on the home LAN and
   inside the tailnet; don't port-forward it to the internet.
-  - LAN: `192.168.1.147` · Tailscale (works from anywhere): `100.96.211.44`
+  - LAN: `<your-lan-ip>` · Tailscale (works from anywhere): `<your-tailscale-ip>`
 - **ntfy.sh (anywhere, no VPN):** publish a JSON command to the secret topic,
   with the token as a `"token"` field inside the message:
 
@@ -38,7 +38,7 @@ curl -d '{"token":"<token>","cmd":"anim","arg":"celebrate"}' \
 
 1. Install **HTTP Shortcuts** (Waboodoo, Play Store).
 2. Per command above: new shortcut → Method `POST` →
-   URL `http://100.96.211.44:8137/` (Tailscale, so it works away from home too;
+   URL `http://<your-tailscale-ip>:8137/` (Tailscale, so it works away from home too;
    use the LAN IP if you skip Tailscale on the phone) →
    Request Headers: `Authorization: Bearer <token>` →
    Request Body type `custom text`, content-type `application/json`,

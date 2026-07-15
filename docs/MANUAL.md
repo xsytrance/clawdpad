@@ -111,6 +111,20 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
 
 Phone/watch recipes: PHONE-WATCH.md · WATCH.md.
 
+### The Android app (clawdpad-app) & browser control panel
+
+- **clawdpad-app** (separate repo) is Clawd's *pocket host*: it speaks the
+  ROLI protocol itself over Android MIDI. **Plug the block into the phone
+  with USB-C and it auto-connects** — no computer at all. Buttons: full /
+  chibi / wave / jump / QR. Bluetooth transport connects and ACKs but the
+  block's firmware appears to gate API mode to USB (full findings:
+  APP.md field notes) — so wireless hosting stays experimental while
+  USB-to-phone works.
+- **control.html** (repo root): open in any browser, point at a running
+  daemon's URL + token — full control panel (jump, jingle, summon, mini,
+  QR, say, status). This is also the zero-install "Mac app": run the host
+  per CHARLES.md, open the page.
+
 ## 8. Config reference (`~/.config/clawdpad/config.json`, 0600)
 
 | key | default | meaning |

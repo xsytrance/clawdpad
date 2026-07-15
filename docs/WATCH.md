@@ -39,7 +39,7 @@ Buttons on the wrist that command the real Clawd: celebrate, jingle,
 status, summon. Two options, per docs/PHONE-WATCH.md research:
 
 - **Tasker + AutoWear** (no Home Assistant): Tasker task per command —
-  HTTP Request action, `POST http://100.96.211.44:8137/` (Tailscale, works
+  HTTP Request action, `POST http://<your-tailscale-ip>:8137/` (Tailscale, works
   anywhere; LAN IP at home), header `Authorization: Bearer <token>`, body
   e.g. `{"cmd":"anim","arg":"celebrate"}` — then an AutoWear tile per task.
   Off-network fallback: POST to `https://ntfy.sh/<topic>` with the token
