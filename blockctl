@@ -15,6 +15,7 @@ Commands:
   anim <celebrate>                     jump with both arms up
   play [jingle|hello|chime]            play a melody (jingle also jumps)
   hum <on|off>                         ambient pad while thinking
+  demo                                 tour every mood (for showing friends)
   status                               mood · block · energy · sessions
   sessions                             print the session registry
   clear                                clear notify + manual mode
@@ -142,6 +143,29 @@ def main(argv):
             print(reply.get("error"), file=sys.stderr)
     elif cmd == "hum":
         send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
+    elif cmd == "demo":
+        import time
+        steps = [
+            ("awake — he breathes, blinks, glances around",
+             [{"cmd": "mode", "arg": "awake"}], 6),
+            ("thinking — pacing, eyes leading (energy = speed)",
+             [{"cmd": "mode", "arg": "thinking"},
+              {"cmd": "event", "kind": "flash"},
+              {"cmd": "event", "kind": "flash"}], 6),
+            ("notify — waving for your attention (tap him to ack)",
+             [{"cmd": "say", "arg": "demo", "seconds": 5}], 5),
+            ("celebrate — arms up, jumping (+ jingle)",
+             [{"cmd": "play", "arg": "jingle"}], 3.5),
+            ("sleep — dim, eyes closed, occasional peek",
+             [{"cmd": "mode", "arg": "sleep"}], 5),
+        ]
+        for line, msgs, wait in steps:
+            print(line)
+            for m in msgs:
+                send(m)
+            time.sleep(wait)
+        send({"cmd": "clear"})
+        print("demo over — Clawd goes back to his life")
     elif cmd == "clear":
         send({"cmd": "clear"})
     elif cmd in ("status", "sessions"):

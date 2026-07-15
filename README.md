@@ -2,6 +2,8 @@
 
 **Clawd — the Claude Code critter — living on a ROLI Lightpad Block.**
 
+![Clawd: awake, petted, pacing, waving, jumping, asleep](docs/demo.gif)
+
 The Lightpad Block M is a 15×15 RGB LED grid behind a pressure-sensitive
 silicone surface. clawdpad puts the official Claude Code mascot on it as a
 tiny desk creature: he breathes, blinks, glances around, paces while Claude
@@ -62,7 +64,9 @@ systemctl --user enable --now blocksd clawdpadd
 ```
 
 Press the block's power button (it sleeps without a host; blocksd keeps it
-awake from then on) and Clawd appears. `./blockctl status` to check on him.
+awake from then on) and Clawd appears. `./blockctl status` to check on him,
+`./blockctl demo` to tour every mood for whoever's looking over your
+shoulder.
 
 Note: blocksd needs `/dev/snd/seq`; add yourself to the `audio` group
 (`sudo usermod -aG audio $USER`) so it works before you log in at the
@@ -122,6 +126,13 @@ One daemon (`clawdpadd.py`, stdlib only), one CLI (`blockctl`), two systemd
 user units. Sounds are synthesized in-process (additive bell voice → WAV,
 played via `pw-play`). Sprites are procedural — see the ASCII preview trick
 in [CLAUDE.md](CLAUDE.md) for tuning them without hardware eyes.
+
+## Roadmap
+
+This is **clawdpad Basic** — small on purpose. The plan for Bluetooth
+(unplugged Clawd), battery body language, `blockctl doctor`, and the Pro
+tier (event/feeling APIs, props he holds in his mouth, agent presence,
+gesture commands) lives in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Hardware notes & credits
 
