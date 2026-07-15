@@ -70,6 +70,17 @@ Milestones:
   loop fits comfortably in an ESP32; poses could be baked or pushed over
   Wi-Fi. This is the "buy a block, flash a dongle, own a creature" product.
 
+## Duet — two Clawds (Basic *and* Pro)
+
+Two blocks can interact **with no middleman at all**: ROLI's DNA connectors
+snap blocks into a hardware topology the protocol reports natively — the
+master relays its neighbor over one link, and one clawdpadd drives both as
+a single canvas with a seam. Dance, chase, fight, pair-code, and
+Animal-Crossing-style melodic "talk" through the host speakers. Remote
+friends federate daemon-to-daemon (LAN/tailnet in Basic; internet via ntfy
+plus **Traveling Clawd** — he walks off your block and onto theirs — in
+Pro). Full design: [DUET.md](DUET.md).
+
 ## Pro — "the ecosystem"
 
 Pro is APIs + an open reaction vocabulary, so anything can make Clawd feel
