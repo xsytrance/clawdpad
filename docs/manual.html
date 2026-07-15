@@ -117,7 +117,8 @@ sister-project soul all talk to <em>it</em>, never to the block.</figcaption>
 <p><strong>LAN/Tailscale:</strong> <code>POST http://&lt;host&gt;:8137/</code> with
 <code>Authorization: Bearer &lt;token&gt;</code> and a JSON command.
 <strong>Anywhere:</strong> publish the JSON (plus <code>"token"</code>) to your
-secret ntfy.sh topic. <strong>Push:</strong> with <code>"state_echo": true</code>
+secret ntfy topic (server configurable via <code>"ntfy_server"</code> —
+self-hosting keeps the pipe entirely yours). <strong>Push:</strong> with <code>"state_echo": true</code>
 every mood change is published to the topic — subscribe with the ntfy app and
 your phone buzzes when he needs you. With <code>"matrix_fanout": true</code>,
 remote commands reach the dazzler matrix too — one command, both bodies.</p>

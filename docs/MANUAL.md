@@ -94,6 +94,10 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
 
 1. Install the **ntfy** app → "+" → type your topic (the `ntfy_topic`
    value from config.json) → subscribe. The topic NAME is the secret.
+   **Server must match**: if the app's default server is a self-hosted
+   instance (common with UnifiedPush), either subscribe on ntfy.sh
+   explicitly, or better — set `"ntfy_server"` in config.json to your own
+   instance and keep the whole pipe private.
 2. Turn OFF battery optimization for ntfy (Settings → Apps → ntfy →
    Battery → Unrestricted) — the #1 "no buzz" cause.
 3. Test: `./blockctl say test -t 10` at home → phone pops "clawd needs
@@ -114,6 +118,7 @@ Phone/watch recipes: PHONE-WATCH.md · WATCH.md.
 | `token` | — | Bearer secret; enables HTTP + ntfy when set |
 | `http_port` | — | LAN command port (8137 conventional) |
 | `ntfy_topic` | — | secret topic for remote commands + echoes |
+| `ntfy_server` | `https://ntfy.sh` | self-hosted ntfy instance (keeps everything on your infra) |
 | `state_echo` | false | publish state transitions to the topic |
 | `matrix_fanout` | false | relay remote commands to the dazzler matrix too |
 | `jingle_on_celebrate` | true | auto-jingle when tasks land |

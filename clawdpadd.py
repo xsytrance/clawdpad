@@ -1016,7 +1016,7 @@ def serve_http(state, port, token):
     server.serve_forever()
 
 
-def state_echo_loop(state, topic):
+def state_echo_loop(state, topic, server):
     """Publish state transitions to the ntfy topic (config "state_echo").
 
     This is the push channel for the app family (phone/watch): mood
@@ -1039,7 +1039,7 @@ def state_echo_loop(state, topic):
             urgent = snap["mood"] == "notify"
             try:
                 urllib.request.urlopen(urllib.request.Request(
-                    f"https://ntfy.sh/{topic}",
+                    f"{server}/{topic}",
                     data=json.dumps(snap).encode(),
                     headers={"Title": "clawd needs you" if urgent
                              else "clawdpad-state",
@@ -1051,9 +1051,14 @@ def state_echo_loop(state, topic):
         time.sleep(1)
 
 
-def ntfy_loop(state, topic, token):
-    """Long-poll ntfy.sh for off-LAN commands. Topic + token are both secret."""
-    url = f"https://ntfy.sh/{topic}/json"
+def ntfy_loop(state, topic, token, server):
+    """Long-poll the ntfy server for off-LAN commands.
+
+    Server is config "ntfy_server" (default https://ntfy.sh — a self-hosted
+    instance keeps everything on your own infrastructure). Topic + token
+    are both secret either way.
+    """
+    url = f"{server}/{topic}/json"
     while True:
         try:
             # ntfy keepalives arrive ~45s apart; 90s of silence = dead link
@@ -1110,12 +1115,13 @@ def main():
                          args=(state, int(cfg["http_port"]), token),
                          daemon=True).start()
     if token and cfg.get("ntfy_topic"):
+        server = str(cfg.get("ntfy_server", "https://ntfy.sh")).rstrip("/")
         threading.Thread(target=ntfy_loop,
-                         args=(state, cfg["ntfy_topic"], token),
+                         args=(state, cfg["ntfy_topic"], token, server),
                          daemon=True).start()
         if cfg.get("state_echo"):
             threading.Thread(target=state_echo_loop,
-                             args=(state, cfg["ntfy_topic"]),
+                             args=(state, cfg["ntfy_topic"], server),
                              daemon=True).start()
     render_loop(state)  # never returns
 
