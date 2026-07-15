@@ -132,7 +132,15 @@ hunger → his vigor, level-ups → jump + jingle, whispers → chime, and
 `blockctl status` grows a `soul:` line. Feeding happens on the dazzler
 side (`feed/` directory). One soul, two bodies; clawdpad never writes it.
 
-## 10. Care & feeding of the hardware
+## 10. Two blocks (twins)
+
+Snap a friend's Lightpad onto yours (DNA magnetic edges) or plug it into a
+second USB port: within ~15 s every block gets a Clawd, moving in perfect
+lockstep — pet either, both lean. `blockctl status` shows `+N twin(s)`.
+Independent duet scenes are the next milestone (DUET.md). Office-day
+playbook incl. the experimental macOS host path: CHARLES.md.
+
+## 11. Care & feeding of the hardware
 
 - The block **powers itself off without a host** — after any reboot,
   press its side button once; blocksd re-adopts it automatically.
@@ -141,7 +149,7 @@ side (`feed/` directory). One soul, two bodies; clawdpad never writes it.
   permission failures before console login.
 - Never run `blocksd led …` CLI while the daemon runs.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | symptom | cause / fix |
 |---|---|
@@ -153,7 +161,7 @@ side (`feed/` directory). One soul, two bodies; clawdpad never writes it.
 | MIDI "Permission denied" pre-login | the audio-group note in §10 |
 | he vanished at 23:00 | he's asleep. `./blockctl mode awake` summons him |
 
-## 12. For developers
+## 13. For developers
 
 `CLAUDE.md` (working notes, iron rules, ASCII sprite preview), `docs/PLAN.md`
 (history ledger), `docs/BLOCKSD-FIXES.md` (protocol debugging playbook),

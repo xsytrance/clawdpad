@@ -465,7 +465,8 @@ class Player:
 
     def __init__(self):
         self.dir = os.path.dirname(command_socket())
-        self.bin = shutil.which("pw-play") or shutil.which("aplay")
+        self.bin = (shutil.which("pw-play") or shutil.which("aplay")
+                    or shutil.which("afplay"))  # afplay: macOS hosts
         self.proc = None
         self.hum_proc = None
         self.last_auto_jingle = 0.0
@@ -791,7 +792,9 @@ def load_config():
         return {}
 
 
-def discover_block(sock):
+def discover_blocks(sock):
+    """All LED-grid devices blocksd can see — DNA-snapped neighbors and
+    extra USB blocks alike. Every one of them gets a Clawd."""
     sock.sendall(b'{"type": "discover", "id": "cpd-1"}\n')
     buf = b""
     while b"\n" not in buf:
@@ -799,10 +802,23 @@ def discover_block(sock):
         if not chunk:
             raise ConnectionError("blocksd closed during discover")
         buf += chunk
-    for dev in json.loads(buf.split(b"\n")[0]).get("devices", []):
-        if dev.get("grid_width") and dev.get("grid_height"):
-            return dev
-    return None
+    return [dev for dev in json.loads(buf.split(b"\n")[0]).get("devices", [])
+            if dev.get("grid_width") and dev.get("grid_height")]
+
+
+def peek_device_count():
+    """Cheap out-of-band device count (own short-lived connection), so the
+    render loop can notice a friend's block snapping on mid-stream."""
+    path = blocksd_socket()
+    if path is None:
+        return -1
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2.0)
+            sock.connect(path)
+            return len(discover_blocks(sock))
+    except (OSError, ValueError):
+        return -1
 
 
 def render_loop(state):
@@ -820,8 +836,8 @@ def render_loop(state):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.connect(path)
-                dev = discover_block(sock)
-                if dev is None:
+                devs = discover_blocks(sock)
+                if not devs:
                     with state.lock:
                         state.block = {"connected": False, "serial": "",
                                        "battery": None}
@@ -831,13 +847,18 @@ def render_loop(state):
                     time.sleep(3)
                     continue
                 announced_wait = False
+                master = devs[0]
                 with state.lock:
-                    state.block = {"connected": True, "serial": dev["serial"],
-                                   "battery": dev.get("battery_level")}
-                log(f"streaming to {dev['serial']} "
-                    f"(battery {dev.get('battery_level')}%)")
-                header = struct.pack("<BBQ", 0xBD, 0x01, dev["uid"])
+                    state.block = {"connected": True,
+                                   "serial": master["serial"],
+                                   "battery": master.get("battery_level"),
+                                   "blocks": len(devs)}
+                log("streaming to " + ", ".join(d["serial"] for d in devs)
+                    + f" (battery {master.get('battery_level')}%)")
+                headers = [struct.pack("<BBQ", 0xBD, 0x01, d["uid"])
+                           for d in devs]
                 rejects = 0
+                frames_sent = 0
                 phase = 0.0
                 last = time.monotonic()
                 while True:
@@ -848,14 +869,25 @@ def render_loop(state):
                     energy = state.tick(dt)
                     phase += dt * (2.5 + 4.5 * energy)
                     touch = state.touch_snapshot()
-                    sock.sendall(header + build_frame(
-                        mood, mono - start, phase, state, touch))
-                    ack = sock.recv(1)
-                    if not ack:
-                        raise ConnectionError("blocksd closed")
-                    rejects = 0 if ack == b"\x01" else rejects + 1
-                    if rejects > 60:  # block likely unplugged; re-discover
+                    frame = build_frame(mood, mono - start, phase, state,
+                                        touch)
+                    # every connected block gets a Clawd — twins in lockstep
+                    accepted = 0
+                    for header in headers:
+                        sock.sendall(header + frame)
+                        ack = sock.recv(1)
+                        if not ack:
+                            raise ConnectionError("blocksd closed")
+                        accepted += ack == b"\x01"
+                    rejects = 0 if accepted else rejects + 1
+                    if rejects > 60:  # all blocks gone; re-discover
                         raise ConnectionError("frames not accepted")
+                    frames_sent += 1
+                    if frames_sent % 300 == 0:  # ~15s: did a friend snap on?
+                        n = peek_device_count()
+                        if n >= 0 and n != len(devs):
+                            log(f"topology changed ({len(devs)} → {n} blocks)")
+                            raise ConnectionError("topology changed")
                     # petting deserves full frame rate even while asleep
                     fps = FPS_DEFAULT if touch else FPS.get(mood, FPS_DEFAULT)
                     time.sleep(1 / fps)

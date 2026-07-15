@@ -189,7 +189,10 @@ def main(argv):
             return 0
         if cmd == "status":
             blk = reply.get("block", {})
-            where = (f"{blk.get('serial')} battery {blk.get('battery')}%"
+            n = blk.get("blocks", 1)
+            where = (f"{blk.get('serial')}"
+                     + (f" +{n - 1} twin(s)" if n > 1 else "")
+                     + f" battery {blk.get('battery')}%"
                      if blk.get("connected") else "block absent")
             print(f"mood {reply.get('mood')}  ·  {where}  ·  "
                   f"energy {reply.get('energy', 0):.2f}  ·  "
