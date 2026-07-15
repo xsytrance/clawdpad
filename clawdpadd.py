@@ -987,6 +987,41 @@ def serve_http(state, port, token):
     server.serve_forever()
 
 
+def state_echo_loop(state, topic):
+    """Publish state transitions to the ntfy topic (config "state_echo").
+
+    This is the push channel for the app family (phone/watch): mood
+    changes at priority min (silent data), notify at high — so a
+    subscribed phone (ntfy app) or the future Wear app buzzes when Clawd
+    needs you. Echoes carry no "token" field, so ntfy_loop ignores them
+    as commands; subscribers tell them apart by "event": "state".
+    """
+    last = None
+    while True:
+        now = time.time()
+        with state.lock:
+            snap = {"event": "state", "mood": None, "size": state.size,
+                    "energy": round(state.energy, 2),
+                    "battery": state.block.get("battery"),
+                    "pet": dict(state.pet) if state.pet else None}
+        snap["mood"] = state.mood(now)
+        key = (snap["mood"], snap["size"], snap["battery"])
+        if key != last:
+            urgent = snap["mood"] == "notify"
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    f"https://ntfy.sh/{topic}",
+                    data=json.dumps(snap).encode(),
+                    headers={"Title": "clawd needs you" if urgent
+                             else "clawdpad-state",
+                             "Priority": "high" if urgent else "min",
+                             "Tags": "state"}), timeout=10)
+                last = key
+            except OSError:
+                pass  # retried implicitly on the next change
+        time.sleep(1)
+
+
 def ntfy_loop(state, topic, token):
     """Long-poll ntfy.sh for off-LAN commands. Topic + token are both secret."""
     url = f"https://ntfy.sh/{topic}/json"
@@ -1008,6 +1043,8 @@ def ntfy_loop(state, topic, token):
                         continue
                     if not isinstance(msg, dict):
                         continue
+                    if msg.get("event") == "state":
+                        continue  # our own state_echo_loop publications
                     supplied = str(msg.pop("token", ""))
                     if not hmac.compare_digest(supplied, token):
                         log("ntfy message with bad token ignored")
@@ -1046,6 +1083,10 @@ def main():
         threading.Thread(target=ntfy_loop,
                          args=(state, cfg["ntfy_topic"], token),
                          daemon=True).start()
+        if cfg.get("state_echo"):
+            threading.Thread(target=state_echo_loop,
+                             args=(state, cfg["ntfy_topic"]),
+                             daemon=True).start()
     render_loop(state)  # never returns
 
 

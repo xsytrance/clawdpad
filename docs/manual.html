@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The clawdpad Manual</title>
+<style>
+  :root { --coral:#D97757; --bg:#171310; --card:#211b17; --ink:#efe6df; --dim:#a89a8f; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,Segoe UI,sans-serif; padding:2rem 1rem 4rem; }
+  main { max-width:820px; margin:0 auto; }
+  h1 { color:var(--coral); font-size:2.2rem; margin:.5rem 0; }
+  h2 { color:var(--coral); margin:2.2rem 0 .7rem; border-bottom:1px solid #3a2f28; padding-bottom:.3rem; }
+  p, li { color:var(--ink); } .dim { color:var(--dim); }
+  table { border-collapse:collapse; width:100%; margin:1rem 0; }
+  th, td { border:1px solid #3a2f28; padding:.5rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--card); color:var(--coral); }
+  code, pre { background:var(--card); border-radius:6px; font:14px/1.5 ui-monospace,Menlo,monospace; }
+  code { padding:.1rem .35rem; } pre { padding:1rem; overflow-x:auto; margin:1rem 0; }
+  .hero { display:flex; gap:1.5rem; align-items:center; flex-wrap:wrap; margin:1.5rem 0; }
+  .hero img { border-radius:14px; max-width:100%; }
+  .card { background:var(--card); border-radius:12px; padding:1rem 1.2rem; margin:1rem 0; }
+  figure { margin:1.2rem 0; text-align:center; }
+  figcaption { color:var(--dim); font-size:.85rem; margin-top:.4rem; }
+  svg text { font:13px ui-monospace,Menlo,monospace; }
+  .pixel { image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>The clawdpad Manual</h1>
+<p class="dim">Clawd — the Claude Code critter — living on a ROLI Lightpad Block.
+Illustrated edition · 2026-07-15 · plain-text twin: <code>MANUAL.md</code></p>
+
+<div class="hero">
+  <img src="demo.gif" alt="Clawd's moods: awake, petted, pacing, waving, jumping, asleep" width="330">
+  <div>
+    <p><strong>This is Clawd.</strong> He breathes, blinks, and glances around.
+    He paces while Claude Code works — faster when the work is heavy. He waves
+    when Claude needs you. He jumps when a task lands. He sleeps at night, badly,
+    if you keep petting him.</p>
+    <p class="dim" style="margin-top:.6rem">Everything on the glass is his body
+    language. He is a creature, not a dashboard.</p>
+  </div>
+</div>
+
+<h2>How the family fits together</h2>
+<figure>
+<svg viewBox="0 0 760 300" width="100%" role="img" aria-label="Architecture diagram">
+  <defs><marker id="a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+    <path d="M0,0 L10,4 L0,8 z" fill="#a89a8f"/></marker></defs>
+  <rect x="10" y="20" width="180" height="64" rx="10" fill="#211b17" stroke="#D97757"/>
+  <text x="100" y="46" fill="#D97757" text-anchor="middle">Claude Code hooks</text>
+  <text x="100" y="66" fill="#a89a8f" text-anchor="middle">prompt · tools · stop</text>
+  <rect x="10" y="110" width="180" height="64" rx="10" fill="#211b17" stroke="#D97757"/>
+  <text x="100" y="136" fill="#D97757" text-anchor="middle">phone / watch / laptop</text>
+  <text x="100" y="156" fill="#a89a8f" text-anchor="middle">HTTP · ntfy.sh</text>
+  <rect x="10" y="200" width="180" height="64" rx="10" fill="#211b17" stroke="#D97757"/>
+  <text x="100" y="226" fill="#D97757" text-anchor="middle">dazzler soul</text>
+  <text x="100" y="246" fill="#a89a8f" text-anchor="middle">hunger · XP · whispers</text>
+  <rect x="290" y="110" width="190" height="64" rx="10" fill="#2a1f18" stroke="#D97757" stroke-width="2"/>
+  <text x="385" y="136" fill="#efe6df" text-anchor="middle">clawdpadd</text>
+  <text x="385" y="156" fill="#a89a8f" text-anchor="middle">moods · touch · music</text>
+  <rect x="560" y="110" width="120" height="64" rx="10" fill="#211b17" stroke="#D97757"/>
+  <text x="620" y="136" fill="#efe6df" text-anchor="middle">blocksd</text>
+  <text x="620" y="156" fill="#a89a8f" text-anchor="middle">USB SysEx</text>
+  <rect x="700" y="118" width="50" height="50" rx="8" fill="#D97757"/>
+  <text x="725" y="148" fill="#171310" text-anchor="middle">15²</text>
+  <line x1="190" y1="52" x2="290" y2="128" stroke="#a89a8f" marker-end="url(#a)"/>
+  <line x1="190" y1="142" x2="290" y2="142" stroke="#a89a8f" marker-end="url(#a)"/>
+  <line x1="190" y1="232" x2="290" y2="156" stroke="#a89a8f" marker-end="url(#a)"/>
+  <line x1="480" y1="142" x2="560" y2="142" stroke="#a89a8f" marker-end="url(#a)"/>
+  <line x1="680" y1="142" x2="700" y2="142" stroke="#a89a8f" marker-end="url(#a)"/>
+  <text x="520" y="130" fill="#a89a8f" text-anchor="middle">20 fps</text>
+  <text x="240" y="112" fill="#a89a8f" text-anchor="middle">blockctl</text>
+</svg>
+<figcaption>One daemon owns the creature; hooks, phones, watches, and the
+sister-project soul all talk to <em>it</em>, never to the block.</figcaption>
+</figure>
+
+<h2>His moods</h2>
+<table>
+<tr><th>mood</th><th>what you see</th><th>when</th></tr>
+<tr><td>awake</td><td>breathing, bobbing, small paces, blinks, glances</td><td>idle, daytime</td></tr>
+<tr><td>thinking</td><td>pacing, eyes leading — <strong>speed = how hard Claude works</strong></td><td>a session is active</td></tr>
+<tr><td>notify</td><td>right arm up, waving, gentle pulse</td><td>Claude needs input — tap him</td></tr>
+<tr><td>celebrate</td><td>both arms up, jumping · jingle</td><td>task lands · double-tap · level-up</td></tr>
+<tr><td>sleep</td><td>dim, eyes closed, slow breath, rare peek</td><td>23:00–07:00 idle</td></tr>
+<tr><td>qr</td><td>the glass becomes a Micro QR code</td><td><code>blockctl qr</code></td></tr>
+</table>
+<p>Two sizes: <strong>full</strong> (he is the glass) and <strong>mini</strong>
+(chibi Clawd roams his block like a room). Triple-tap to transform.</p>
+
+<h2>Touch</h2>
+<table>
+<tr><th>gesture</th><th>reaction</th></tr>
+<tr><td>press &amp; hold</td><td>petting — leans in, glows with pressure</td></tr>
+<tr><td>slide</td><td>eyes (and body) follow your finger</td></tr>
+<tr><td>tap ×1</td><td>acks a notify · otherwise he looks at you</td></tr>
+<tr><td>tap ×2</td><td>celebrate jump</td></tr>
+<tr><td>tap ×3</td><td>full ↔ mini transform (chime)</td></tr>
+</table>
+
+<h2>Commands</h2>
+<pre>./blockctl status | demo | sessions | clear
+./blockctl mode awake|thinking|sleep|notify
+./blockctl say "text" -t 60        # wave + chime; tap to ack
+./blockctl anim celebrate          # jump
+./blockctl play jingle|hello|chime # sound (+ jump for jingle)
+./blockctl hum on|off              # ambient pad while thinking
+./blockctl size full|mini          # = triple-tap
+./blockctl qr TEXT -t 30           # ≤14 alnum or 23 digits (Micro QR M3)</pre>
+
+<h2>Remote &amp; push</h2>
+<div class="card">
+<p><strong>LAN/Tailscale:</strong> <code>POST http://&lt;host&gt;:8137/</code> with
+<code>Authorization: Bearer &lt;token&gt;</code> and a JSON command.
+<strong>Anywhere:</strong> publish the JSON (plus <code>"token"</code>) to your
+secret ntfy.sh topic. <strong>Push:</strong> with <code>"state_echo": true</code>
+every mood change is published to the topic — subscribe with the ntfy app and
+your phone buzzes when he needs you.</p>
+</div>
+
+<h2>On your wrist</h2>
+<figure>
+  <img class="pixel" src="watch/clawd_face.png" alt="Clawd watch face" width="200">
+  <img class="pixel" src="watch/clawd_sleep.png" alt="Clawd sleeping watch face" width="200">
+  <figcaption>Photo-face stills (5-minute setup) — animated loop and the native
+  Wear OS app plan live in <code>WATCH.md</code> / <code>WEAR.md</code>.</figcaption>
+</figure>
+
+<h2>The soul</h2>
+<p>With the dazzler sister project installed, Clawd shares its tamagotchi soul:
+hunger dims his flame (starving = guttering flicker), level-ups jump + jingle,
+whispers chime. Feed him by dropping photos/notes in <code>~/dazzler/feed/</code>.
+One soul, two bodies — this side never writes it.</p>
+
+<h2>Hardware care</h2>
+<ul>
+  <li>The block powers off without a host — after a reboot, press its side
+      button once; blocksd re-adopts it.</li>
+  <li>USB-C is the tether (Bluetooth is on the roadmap); it charges over it.</li>
+  <li>blocksd needs <code>/dev/snd/seq</code>: <code>sudo usermod -aG audio $USER</code>.</li>
+  <li>Never run <code>blocksd led …</code> while the daemon runs.</li>
+</ul>
+
+<h2>When something looks wrong</h2>
+<table>
+<tr><th>symptom</th><th>fix</th></tr>
+<tr><td>factory multicolor squares</td><td>LED program not running — apply <code>patches/</code> to blocksd (frame acks ≠ rendering; see BLOCKSD-FIXES.md)</td></tr>
+<tr><td>dark glass</td><td>blocksd down or block asleep — check the service, press the button</td></tr>
+<tr><td>no sound</td><td>install pw-play/aplay (journal says “music disabled”)</td></tr>
+<tr><td>gone at 23:00</td><td>asleep. <code>./blockctl mode awake</code> summons him</td></tr>
+<tr><td>QR won’t scan</td><td>it’s an inverted <em>Micro</em> QR — stock cameras vary; the clawdpad app will always read it</td></tr>
+</table>
+
+<p class="dim" style="margin-top:3rem">clawdpad · MIT · built with Claude Code,
+for Claude Code, by Claude Code — supervised by a human who kept saying
+“make it cuter.”</p>
+
+</main>
+</body>
+</html>
