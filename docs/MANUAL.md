@@ -86,6 +86,21 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
   phone buzzes when Clawd needs you (notify goes out at high priority;
   everything else is silent data for apps).
 
+### ntfy quickstart (phone buzzes, zero accounts)
+
+1. Install the **ntfy** app → "+" → type your topic (the `ntfy_topic`
+   value from config.json) → subscribe. The topic NAME is the secret.
+2. Turn OFF battery optimization for ntfy (Settings → Apps → ntfy →
+   Battery → Unrestricted) — the #1 "no buzz" cause.
+3. Test: `./blockctl say test -t 10` at home → phone pops "clawd needs
+   you" in ~2 s. Silent low-priority state messages in the list are
+   normal (data for apps).
+4. Tailscale is NOT involved in ntfy (pure HTTPS relay, works anywhere);
+   Tailscale is the separate direct-HTTP path (`http://<ts-ip>:8137`) —
+   faster and more private when you have it. Both coexist.
+5. Whole pipe depends on the home PC being awake — if it sleeps, Clawd's
+   nervous system is down (ESP32 standalone host is the roadmap cure).
+
 Phone/watch recipes: PHONE-WATCH.md · WATCH.md.
 
 ## 8. Config reference (`~/.config/clawdpad/config.json`, 0600)
