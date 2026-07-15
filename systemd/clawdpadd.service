@@ -1,0 +1,23 @@
+[Unit]
+Description=Clawd on the Lightpad (clawdpad presence engine)
+Documentation=https://github.com/xsytrance/clawdpad
+After=blocksd.service
+Wants=blocksd.service
+
+[Service]
+# Adjust the path if you cloned clawdpad somewhere else.
+ExecStart=%h/clawdpad/.venv/bin/python %h/clawdpad/clawdpadd.py
+Restart=always
+RestartSec=5
+RuntimeDirectory=clawdpad
+RuntimeDirectoryMode=0700
+
+# Security hardening (user-service safe subset)
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=default.target

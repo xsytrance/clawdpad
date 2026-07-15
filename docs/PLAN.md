@@ -110,6 +110,16 @@ later (see idea #15) is one more line.
 >   (rate-limited), optional thinking hum (`blockctl hum on` / config `thinking_hum`).
 >   "You play" MPE passthrough + LED mirroring deferred (needs LittleFoot MIDI API
 >   coexisting with the bitmap program).
+> - **clawdpad rebrand + all-Clawd baseline** 🐾 2026-07-15 — project renamed
+>   clawdpad (Clawd + Lightpad, Rod's pick); daemon → clawdpadd.py (service
+>   clawdpadd, socket $XDG_RUNTIME_DIR/clawdpad, config ~/.config/clawdpad).
+>   All abstract effects removed at Rod's request (vortex, ripples/waves/flashes,
+>   glyph cards, amber ring): every mood is Clawd body language — think = pacing
+>   (speed = work energy), celebrate = jump with arms up, notify = wave. Touch:
+>   pet/slide (lean+glow+gaze), tap (looks at you / acks), double-tap (jump).
+>   Repo git-initialized (MIT); blocksd fixes committed on vendor branch
+>   fix/littlefoot-jump-base and shipped as patches/. Local dir still
+>   ~/claudeblock (rename deferred — units/hooks point at it).
 > - Soul link 🫀 2026-07-15 (unplanned, Rod's ask: "live on it like dazzler") —
 >   claudeblockd mirrors Clawd's ~/dazzler/state.json read-only: hunger→spark vigor,
 >   level-up→firework+jingle, whispers→chime, `pet` glyph card, `soul:` in status;

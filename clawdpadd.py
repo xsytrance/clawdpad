@@ -1,47 +1,54 @@
 #!/usr/bin/env python3
-"""claudeblockd — Claude's presence engine for the ROLI Lightpad Block M.
+"""clawdpadd — Clawd, the Claude Code critter, living on a ROLI Lightpad Block.
 
-Streams mood animations to the block through a running blocksd (Unix socket,
-685-byte binary frames) and exposes its own Unix socket command interface for
-blockctl / hooks / future phone+watch bridges.
+Renders the official Claude Code icon as 15x15 pixel art and gives it a
+life: it breathes, blinks, paces while Claude works, waves when Claude needs
+you, jumps when a task lands, and sleeps at night. Everything on the glass
+is Clawd's own body language — no abstract effects.
 
-Moods: awake (breathing spark) · thinking (coral vortex) · sleep (drifting
-embers, auto 23:00–07:00 when idle) · notify (pulsing amber ring — tap the
-block to acknowledge) · celebrate (one-shot firework, ~2.4s) · glyph
-(double-tap info cards: time → sessions → battery).
+Streams frames through a running blocksd (Unix socket, 685-byte binary
+frames) and exposes a Unix-socket command interface for blockctl and
+Claude Code hooks.
 
-Touch (Phase 4): a tap acknowledges notify; press-and-hold is petting — the
-spark leans toward your finger and glows with pressure; double-tap shows the
-glyph card and cycles it on further double-taps.
+Moods (all rendered by _clawd()):
+  awake     breathing, bobbing, pacing a little, blinking, glancing around
+  thinking  pacing back and forth, eyes leading — faster the harder Claude
+            works (tool-call hooks feed a work-energy meter)
+  sleep     dim, eyes closed, slow breathing, occasional peek (23:00-07:00
+            when idle); petting half-wakes him
+  notify    right arm raised and waving, gentle pulse — tap to acknowledge
+  celebrate one-shot: both arms up, jumping (~2.4s)
 
-Remote surfaces (Phase 3), sharing the same command schema:
-  · HTTP on the LAN: POST / with `Authorization: Bearer <token>` and a JSON
-    command body; GET /status for state. Token + port live in
-    ~/.config/claudeblock/config.json (plain HTTP — home-LAN threat model).
-  · ntfy.sh: publish a JSON command (with a "token" field) to the secret
-    topic in config.json; works from anywhere.
+Touch:
+  press/slide   petting — he leans toward your finger, glows with pressure,
+                and his eyes follow it
+  tap           acknowledges a notify; otherwise he looks at you and blinks
+  double-tap    celebrate jump (with the jingle, rate-limited)
 
 Command protocol: one JSON object per line, one JSON reply per line.
   {"cmd": "event-hook", "kind": "start|prompt|stop|end", "sid": "...", "project": "..."}
+  {"cmd": "event", "kind": "ripple|wave|flash", "sid": "..."}   # energy only
   {"cmd": "mode", "arg": "awake|thinking|sleep|notify"}
-  {"cmd": "say", "arg": "text", "seconds": 120}      # renders as notify
+  {"cmd": "say", "arg": "text", "seconds": 120}      # notify + chime
   {"cmd": "anim", "arg": "celebrate"}
-  {"cmd": "event", "kind": "ripple|wave|flash", "color": [r, g, b], "sid": "..."}
-  {"cmd": "glyph", "arg": "time|sessions|battery|pet", "seconds": 4}
-  {"cmd": "play", "arg": "jingle|hello|chime"}     # sound + celebrate light
-  {"cmd": "hum", "arg": "on|off"}                   # ambient pad while thinking
-
-Music (Phase 5) is synthesized in-process — pure-stdlib additive bell voice
-rendered to WAV (cached in the runtime dir) and played via pw-play/aplay.
-Config (~/.config/claudeblock/config.json): "jingle_on_celebrate" (default
-true, rate-limited to one per 30 s) and "thinking_hum" (default false).
-
-Soul link: Clawd's tamagotchi state (~/dazzler/state.json, owned by dazzler's
-petd.py) is mirrored read-only. Hunger sets the idle spark's vigor, level-ups
-fire firework+jingle, petd whispers chime here, and the "pet" glyph card
-shows level + hunger bar. One soul, two bodies — never write dazzler's state.
+  {"cmd": "play", "arg": "jingle|hello|chime"}       # jingle also jumps
+  {"cmd": "hum", "arg": "on|off"}                     # ambient pad while thinking
   {"cmd": "clear"}                                    # drop notify + manual mode
-  {"cmd": "status"}                                   # -> mood, block, sessions
+  {"cmd": "status"}
+
+Remote surfaces (optional; enabled by ~/.config/clawdpad/config.json):
+  HTTP  POST / with `Authorization: Bearer <token>`, GET /status
+  ntfy  publish JSON commands (with a "token" field) to the secret topic
+
+Music is synthesized in-process (pure-stdlib additive bell voice -> WAV
+cached in the runtime dir, played via pw-play/aplay). Config keys:
+"http_port", "token", "ntfy_topic", "jingle_on_celebrate" (default true,
+one per 30s), "thinking_hum" (default false).
+
+Soul link (optional): if ~/dazzler/state.json exists (the dazzler sister
+project's tamagotchi), Clawd mirrors it read-only — hunger lowers his flame,
+level-ups celebrate, whispers chime. One soul, two bodies. Absent the file,
+he simply lives at full vigor.
 """
 
 import hmac
@@ -49,7 +56,6 @@ import http.server
 import json
 import math
 import os
-import random
 import shutil
 import socket
 import struct
@@ -61,45 +67,34 @@ import wave
 
 W = H = 15
 CORAL = (217, 119, 87)     # Claude coral #D97757
-AMBER = (255, 176, 32)
-EMBER = (140, 52, 22)
-CX = CY = (W - 1) / 2
-RMAX = math.hypot(CX, CY)
 
 FPS = {"sleep": 8}         # per-mood frame rate; default 20
 FPS_DEFAULT = 20
 CELEBRATE_SECONDS = 2.4
-EVENT_TTL = {"ripple": 0.9, "wave": 1.2, "flash": 0.5}
+THINK_TTL = 90 * 60        # a "thinking" session older than this reads as resting
+SESSION_TTL = 12 * 3600    # forget sessions entirely after this
+SLEEP_START, SLEEP_END = 23, 7
 EVENT_ENERGY = {"ripple": 0.10, "wave": 0.20, "flash": 0.25}
 ENERGY_TAU = 25.0          # seconds for work-energy to decay to 1/e
 TAP_MAX_SECONDS = 0.35     # touch shorter than this is a tap, longer is petting
 DOUBLE_TAP_WINDOW = 0.6    # two taps inside this = double-tap
-GLYPH_SECONDS = 4.0
-GLYPHS = ("time", "sessions", "battery", "pet")
+NOTICE_SECONDS = 1.2       # how long a single tap holds Clawd's gaze
+
+# Clawd's geometry, scaled from the official Claude Code icon SVG
+# (viewBox 24x24; same rect decomposition dazzler's make_clawd.py uses):
+# solid body, two side arm nubs, FOUR legs, two eye holes. Rects are
+# (x0, y0, x1, y1), end-exclusive, on the 15x15 grid.
+CLAWD_BODY = (2, 3, 13, 11)
+CLAWD_ARMS = ((0, 7, 2, 9), (13, 7, 15, 9))     # left, right
+CLAWD_LEGS = ((3, 11, 4, 13), (5, 11, 6, 13),
+              (9, 11, 10, 13), (11, 11, 12, 13))
+CLAWD_EYES = ((4, 5), (10, 5))                   # top px of each 1x2 eye hole
 
 # One soul, two bodies: Clawd's pet state is OWNED by dazzler (petd.py writes
-# it; a systemd timer ticks it). The block only mirrors it — never writes.
+# it; a systemd timer ticks it). This body only mirrors it — never writes.
 PET_STATE = os.path.expanduser("~/dazzler/state.json")
 PET_VIGOR = {"full": 1.0, "content": 1.0, "peckish": 0.85,
-             "hungry": 0.70, "starving": 0.55}  # idle-spark brightness factor
-
-# 3x5 pixel font for the glyph cards (rows of '1' bits, top to bottom)
-FONT = {
-    "0": ("111", "101", "101", "101", "111"),
-    "1": ("010", "110", "010", "010", "111"),
-    "2": ("111", "001", "111", "100", "111"),
-    "3": ("111", "001", "011", "001", "111"),
-    "4": ("101", "101", "111", "001", "001"),
-    "5": ("111", "100", "111", "001", "111"),
-    "6": ("111", "100", "111", "101", "111"),
-    "7": ("111", "001", "001", "010", "010"),
-    "8": ("111", "101", "111", "101", "111"),
-    "9": ("111", "101", "111", "001", "111"),
-    "?": ("111", "001", "011", "000", "010"),
-}
-THINK_TTL = 90 * 60        # a "thinking" session older than this reads as resting
-SESSION_TTL = 12 * 3600    # forget sessions entirely after this
-SLEEP_START, SLEEP_END = 23, 7
+             "hungry": 0.70, "starving": 0.55}  # brightness factor by mood
 
 
 def blocksd_socket():
@@ -113,9 +108,9 @@ def blocksd_socket():
 
 def command_socket():
     base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-    d = os.path.join(base, "claudeblockd")
+    d = os.path.join(base, "clawdpad")
     os.makedirs(d, mode=0o700, exist_ok=True)
-    return os.path.join(d, "claudeblockd.sock")
+    return os.path.join(d, "clawdpad.sock")
 
 
 class State:
@@ -124,23 +119,20 @@ class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.sessions = {}          # sid -> [project, "thinking"|"resting", epoch]
-        self.manual = None          # explicit `mode` override; hooks clear it
+        self.manual = None          # explicit `mode` override
         self.notify_until = 0.0
         self.notify_text = ""
         self.oneshot_until = 0.0    # celebrate window
-        self.oneshot_rng = random.Random(0)
-        self.events = []            # one-shots: (kind, (r, g, b), started)
-        self.energy = 0.0           # 0..1 work density; scales vortex speed
+        self.energy = 0.0           # 0..1 work density; scales pacing speed
         self.touch = None           # live touch: [x, y, z, started] (0..1 floats)
         self.taps = []              # recent tap timestamps (double-tap detect)
-        self.glyph_until = 0.0
-        self.glyph_index = 0
+        self.notice = None          # (look_dx, until): single-tap gaze
         self.block = {"connected": False, "serial": "", "battery": None}
         self.started = time.time()
-        self.player = None                # set in main()
-        self.hum_enabled = False          # config "thinking_hum" / {"cmd":"hum"}
-        self.jingle_on_celebrate = True   # config "jingle_on_celebrate"
-        self.pet = None                   # mirrored from dazzler's state.json
+        self.player = None          # set in main()
+        self.hum_enabled = False
+        self.jingle_on_celebrate = True
+        self.pet = None             # mirrored from dazzler's state.json
         self.last_say_chime = 0.0
 
     def prune(self, now):
@@ -158,8 +150,6 @@ class State:
                 return "celebrate"
             if now < self.notify_until:
                 return "notify"
-            if now < self.glyph_until:
-                return "glyph"
             if self.manual:
                 return self.manual
             if any(s[1] == "thinking" for s in self.sessions.values()):
@@ -169,6 +159,9 @@ class State:
                 return "sleep"
             return "awake"
 
+    def celebrate(self, now):
+        self.oneshot_until = now + CELEBRATE_SECONDS
+
     def apply(self, msg, now):
         cmd = msg.get("cmd")
         with self.lock:
@@ -177,8 +170,8 @@ class State:
                 sid = str(msg.get("sid", "manual"))[:8]
                 project = str(msg.get("project", "somewhere"))
                 if kind in ("start", "prompt"):
-                    # new activity reclaims the mood; a mere turn-ending does
-                    # not, so a manually summoned Clawd survives stop events
+                    # new activity reclaims the mood; a mere turn-ending
+                    # does not, so a manually summoned Clawd survives stops
                     self.manual = None
                 if kind == "start":
                     self.sessions[sid] = [project, "resting", now]
@@ -189,14 +182,22 @@ class State:
                     old = self.sessions.get(sid)
                     self.sessions[sid] = [old[0] if old else project,
                                           "resting", now]
-                    self.oneshot_until = now + CELEBRATE_SECONDS
-                    self.oneshot_rng = random.Random(int(now))
+                    self.celebrate(now)
                     if self.jingle_on_celebrate and self.player:
                         self.player.auto_jingle(now)
                 elif kind == "end":
                     self.sessions.pop(sid, None)
                 else:
                     return {"ok": False, "error": f"unknown kind: {kind}"}
+            elif cmd == "event":
+                # tool activity: no visual of its own — it feeds the work
+                # energy that sets Clawd's pacing speed while thinking
+                kind = str(msg.get("kind", "")).lower()
+                self.energy = min(1.0, self.energy
+                                  + EVENT_ENERGY.get(kind, 0.1))
+                sid = str(msg.get("sid", ""))[:8]
+                if sid in self.sessions:
+                    self.sessions[sid][2] = now
             elif cmd == "mode":
                 arg = str(msg.get("arg", "awake")).lower()
                 if arg == "notify":
@@ -212,24 +213,10 @@ class State:
                 if self.player and now - self.last_say_chime > 10:
                     self.last_say_chime = now
                     self.player.play("chime")
-            elif cmd == "event":
-                kind = str(msg.get("kind", "")).lower()
-                if kind not in EVENT_TTL:
-                    return {"ok": False, "error": f"unknown event: {kind}"}
-                color = tuple(int(c) for c in (msg.get("color")
-                                               or CORAL))[:3]
-                self.events = [e for e in self.events
-                               if now - e[2] < EVENT_TTL[e[0]]][-7:]
-                self.events.append((kind, color, now))
-                self.energy = min(1.0, self.energy + EVENT_ENERGY[kind])
-                sid = str(msg.get("sid", ""))[:8]
-                if sid in self.sessions:  # keep a busy session's clock fresh
-                    self.sessions[sid][2] = now
             elif cmd == "anim":
                 if str(msg.get("arg", "")).lower() != "celebrate":
-                    return {"ok": False, "error": "only 'celebrate' in v0"}
-                self.oneshot_until = now + CELEBRATE_SECONDS
-                self.oneshot_rng = random.Random(int(now))
+                    return {"ok": False, "error": "only 'celebrate' exists"}
+                self.celebrate(now)
                 if self.jingle_on_celebrate and self.player:
                     self.player.auto_jingle(now)
             elif cmd == "play":
@@ -238,17 +225,10 @@ class State:
                     return {"ok": False, "error": f"cannot play: {name}"}
                 if not self.player.play(name):
                     return {"ok": False, "error": "no audio player available"}
-                if name == "jingle":  # sound + light, per the plan
-                    self.oneshot_until = now + CELEBRATE_SECONDS
-                    self.oneshot_rng = random.Random(int(now))
+                if name == "jingle":  # sound + jump
+                    self.celebrate(now)
             elif cmd == "hum":
                 self.hum_enabled = str(msg.get("arg", "on")).lower() == "on"
-            elif cmd == "glyph":
-                name = str(msg.get("arg", "time")).lower()
-                if name not in GLYPHS:
-                    return {"ok": False, "error": f"unknown glyph: {name}"}
-                self.glyph_index = GLYPHS.index(name)
-                self.glyph_until = now + float(msg.get("seconds", GLYPH_SECONDS))
             elif cmd == "clear":
                 self.notify_until = 0.0
                 self.notify_text = ""
@@ -271,15 +251,18 @@ class State:
             self.energy *= math.exp(-dt / ENERGY_TAU)
             return self.energy
 
-    def active_events(self, now):
-        with self.lock:
-            self.events = [e for e in self.events
-                           if now - e[2] < EVENT_TTL[e[0]]]
-            return list(self.events)
+    # ── Touch ────────────────────────────────────────────────────────────
 
     def touch_snapshot(self):
         with self.lock:
             return tuple(self.touch[:3]) if self.touch else None
+
+    def notice_look(self, now):
+        with self.lock:
+            if self.notice and now < self.notice[1]:
+                return self.notice[0]
+            self.notice = None
+        return None
 
     def touch_start(self, now, x, y, z):
         """Returns "ack" if this tap acknowledged a notify, else None."""
@@ -297,30 +280,24 @@ class State:
                 self.touch[0:3] = [x, y, z]
 
     def touch_end(self, now):
-        """Tap bookkeeping. Returns the glyph name if a double-tap fired."""
+        """Tap bookkeeping. Returns "jump" when a double-tap celebrates."""
         with self.lock:
             held, self.touch = self.touch, None
             if held is None or now - held[3] > TAP_MAX_SECONDS:
                 return None  # that was petting, not a tap
             self.taps = [t for t in self.taps
                          if now - t < DOUBLE_TAP_WINDOW] + [now]
-            if len(self.taps) < 2:
-                return None
-            self.taps.clear()
-            if now < self.glyph_until:  # already showing: cycle to the next card
-                self.glyph_index = (self.glyph_index + 1) % len(GLYPHS)
-            else:
-                self.glyph_index = 0
-            self.glyph_until = now + GLYPH_SECONDS
-            return GLYPHS[self.glyph_index]
+            if len(self.taps) >= 2:
+                self.taps.clear()
+                self.notice = None
+                self.celebrate(now)
+                return "jump"
+            # single tap: he looks at where you tapped for a moment
+            look = max(-1, min(1, round((held[0] * (W - 1) - 7) * 0.2)))
+            self.notice = (look, now + NOTICE_SECONDS)
+        return None
 
-    def glyph_snapshot(self, now):
-        with self.lock:
-            self.prune(now)
-            thinking = sum(1 for s in self.sessions.values()
-                           if s[1] == "thinking")
-            return (GLYPHS[self.glyph_index], len(self.sessions), thinking,
-                    self.block.get("battery"), self.pet)
+    # ── Soul link ────────────────────────────────────────────────────────
 
     def pet_vigor(self):
         with self.lock:
@@ -340,7 +317,7 @@ MELODIES = {
     "hello": [(55, 0.00, 0.18), (60, 0.18, 0.18), (64, 0.36, 0.40)],
     "chime": [(88, 0.00, 0.16), (84, 0.20, 0.30)],
 }
-HUM_CHORD = (48, 55, 64)   # C3 G3 E4 — the pad Claude hums while thinking
+HUM_CHORD = (48, 55, 64)   # C3 G3 E4 — the pad Clawd hums while thinking
 HUM_SECONDS = 8.0
 
 
@@ -349,7 +326,7 @@ def _note_freq(midi):
 
 
 def _render_melody(notes, gain=0.30):
-    """Additive bell voice (fundamental + 2 partials, exp decay) -> float samples."""
+    """Additive bell voice (fundamental + 2 partials, exp decay) -> floats."""
     total = max(s + d for _, s, d in notes) + 0.9  # room for release tails
     buf = [0.0] * int(total * SAMPLE_RATE)
     for pitch, start, dur in notes:
@@ -361,7 +338,7 @@ def _render_melody(notes, gain=0.30):
                 if i0 + i >= len(buf):
                     break
                 t = i / SAMPLE_RATE
-                env = math.exp(-3.2 * t) * min(1.0, t * 200)  # click-free attack
+                env = math.exp(-3.2 * t) * min(1.0, t * 200)  # no click
                 s = (math.sin(2 * math.pi * f * t)
                      + 0.35 * math.sin(2 * math.pi * 2 * f * t)
                      + 0.12 * math.sin(2 * math.pi * 3.01 * f * t))
@@ -370,7 +347,7 @@ def _render_melody(notes, gain=0.30):
 
 
 def _render_hum():
-    """Quiet slow-breathing pad; fades at both ends so looping doesn't click."""
+    """Quiet slow-breathing pad; fades at both ends so looping is seamless."""
     n = int(HUM_SECONDS * SAMPLE_RATE)
     buf = [0.0] * n
     for k, midi in enumerate(HUM_CHORD):
@@ -436,7 +413,7 @@ class Player:
         return True
 
     def auto_jingle(self, now):
-        """Celebrate-triggered jingle, rate-limited so session storms stay calm."""
+        """Celebrate-triggered jingle, rate-limited so storms stay calm."""
         if now - self.last_auto_jingle < JINGLE_COOLDOWN:
             return
         self.last_auto_jingle = now
@@ -460,10 +437,9 @@ class Player:
 def pet_loop(state):
     """One soul, two bodies: mirror Clawd's life from dazzler's state.json.
 
-    petd.py (dazzler) owns the state; we watch it read-only every 5 s.
-    Level-ups → firework + jingle on the glass. New whispers (petd speaking
-    on the matrix) → a chime here, so both bodies feel inhabited. Hunger
-    reaches the idle spark via State.pet_vigor().
+    Optional — if the file never appears, Clawd lives at full vigor.
+    Level-ups jump + jingle; petd whispers chime; hunger reaches the
+    renderer via State.pet_vigor().
     """
     last = None
     while True:
@@ -483,8 +459,7 @@ def pet_loop(state):
             if pet.get("level", 1) > last.get("level", 1):
                 log(f"Clawd leveled up → {pet.get('level')}!")
                 with state.lock:
-                    state.oneshot_until = now + CELEBRATE_SECONDS
-                    state.oneshot_rng = random.Random(int(now))
+                    state.celebrate(now)
                 if state.player:
                     state.player.play("jingle")
             w_new = pet.get("whispers") or []
@@ -497,7 +472,7 @@ def pet_loop(state):
 
 
 def hum_loop(state, player):
-    """Claude hums (quietly) while thinking, when enabled. Checks twice a second."""
+    """Clawd hums (quietly) while thinking, when enabled."""
     while True:
         humming = state.hum_enabled and state.mood(time.time()) == "thinking"
         if humming and not player.hum_running():
@@ -509,41 +484,17 @@ def hum_loop(state, player):
 
 # ---------------------------------------------------------------- animations
 
-def _emit(levels, color):
-    """levels: 225 floats 0..1 -> RGB888 frame bytes in `color`."""
-    px = bytearray()
-    for lv in levels:
-        lv = 0.0 if lv < 0.0 else (1.0 if lv > 1.0 else lv)
-        px += bytes(min(255, int(c * lv)) for c in color)
-    return px
-
-
-def _lean(touch, pull=0.45):
-    """Where the spark's center sits: drawn toward a touch, else home."""
-    if touch is None:
-        return CX, CY, 0.0
-    tx, ty, tz = touch
-    cx = CX + (tx * (W - 1) - CX) * pull
-    cy = CY + (ty * (H - 1) - CY) * pull
-    return cx, cy, tz
-
-
-# Clawd's geometry, scaled from the official Claude Code icon SVG
-# (viewBox 24x24; same rect decomposition dazzler's make_clawd.py uses):
-# solid body, two side arm nubs, FOUR legs, two eye holes. Rects are
-# (x0, y0, x1, y1), end-exclusive, on the 15x15 grid.
-CLAWD_BODY = (2, 3, 13, 11)
-CLAWD_ARMS = ((0, 7, 2, 9), (13, 7, 15, 9))     # left, right
-CLAWD_LEGS = ((3, 11, 4, 13), (5, 11, 6, 13),
-              (9, 11, 10, 13), (11, 11, 12, 13))
-CLAWD_EYES = ((4, 5), (10, 5))                   # top px of each 1x2 eye hole
+def _blit(buf, x, y, color):
+    if 0 <= x < W and 0 <= y < H:
+        i = (y * W + x) * 3
+        buf[i], buf[i + 1], buf[i + 2] = color
 
 
 def _clawd(brightness, dx=0, dy=0, eyes="open", look=0,
            arm_l_dy=0, arm_r_dy=0):
     """Render Clawd — the actual Claude Code icon as 15x15 pixel art.
 
-    dx/dy shift the whole creature (pace/bob, dazzler-style); `eyes` is
+    dx/dy shift the whole creature (pace/bob/jump); `eyes` is
     "open"|"closed"; `look` shifts the eye holes sideways; arm_*_dy raise
     (negative) or droop an arm. Eyes are holes (unlit), like the icon.
     """
@@ -568,25 +519,32 @@ def _clawd(brightness, dx=0, dy=0, eyes="open", look=0,
     return buf
 
 
-def frame_awake(t, touch=None, vigor=1.0):
+def _touch_pose(touch):
+    """Shared petting math: lean offsets, gaze, pressure glow."""
+    tx, ty, tz = touch
+    fx, fy = tx * (W - 1) - 7, ty * (H - 1) - 7
+    dx = max(-2, min(2, round(fx * 0.3)))
+    dy = max(-1, min(1, round(fy * 0.2)))
+    look = max(-1, min(1, round(fx * 0.2)))
+    return dx, dy, look, tz
+
+
+def frame_awake(t, touch=None, vigor=1.0, notice=None):
     """Clawd awake: breathes, bobs, paces a little, blinks, glances around.
 
-    Touch makes him lean toward your finger, glow with pressure, and watch
-    it. Vigor mirrors hunger (see pet_loop) — a hungry Clawd burns low, a
-    starving one gutters (feed him: ~/dazzler/feed/).
+    Petting leans him toward your finger with pressure glow and tracking
+    eyes; a single tap (`notice`) holds his gaze for a moment. Vigor
+    mirrors hunger — a hungry Clawd burns low, a starving one gutters
+    (feed him: ~/dazzler/feed/).
     """
     breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
     if touch is not None:
-        tx, ty, tz = touch
-        fx, fy = tx * (W - 1) - 7, ty * (H - 1) - 7
-        dx = max(-2, min(2, round(fx * 0.3)))
-        dy = max(-1, min(1, round(fy * 0.2)))
-        look = max(-1, min(1, round(fx * 0.2)))
+        dx, dy, look, tz = _touch_pose(touch)
         brightness = min(1.0, breath + 0.35 * tz)
     else:
         dx = round(1.5 * math.sin(t * 0.13))
         dy = round(0.5 * math.sin(t * 2 * math.pi / 6.5))
-        look = round(0.9 * math.sin(t * 0.31))
+        look = notice if notice is not None else round(0.9 * math.sin(t * 0.31))
         brightness = breath
     brightness *= vigor
     if vigor <= PET_VIGOR["starving"]:
@@ -595,31 +553,32 @@ def frame_awake(t, touch=None, vigor=1.0):
     return _clawd(brightness, dx, dy, "closed" if blink else "open", look)
 
 
-def frame_thinking(phase, energy, touch=None):
-    """Three-armed coral vortex; spins and brightens with work energy.
+def frame_thinking(phase, t, touch=None, notice=None):
+    """Clawd hard at work: pacing back and forth, eyes leading the way.
 
-    Petting leans the vortex eye toward the finger, gently (it's busy).
+    `phase` accumulates at 2.5+4.5*energy rad/s in the render loop, so he
+    paces visibly faster the harder Claude is working — and winds down
+    when the work does. Quick busy blinks.
     """
-    cx, cy, tz = _lean(touch, pull=0.30)
-    floor = min(0.6, 0.22 + 0.18 * energy + 0.2 * tz)
-    levels = []
-    for y in range(H):
-        for x in range(W):
-            dx, dy = x - cx, y - cy
-            r = math.hypot(dx, dy) / RMAX
-            arm = math.sin(math.atan2(dy, dx) * 3 + r * 5.0 - phase)
-            level = (floor + (1.0 - floor) * max(0.0, arm)) \
-                * max(0.0, 1.0 - r) ** 1.4
-            if r < 0.14:
-                level = 1.0
-            levels.append(level)
-    return _emit(levels, CORAL)
+    if touch is not None:
+        dx, dy, look, tz = _touch_pose(touch)
+        brightness = min(1.0, 0.9 + 0.35 * tz)
+    else:
+        dx = round(2.2 * math.sin(phase * 0.5))
+        dy = 0
+        vel = math.cos(phase * 0.5)
+        look = notice if notice is not None else \
+            (1 if vel > 0.25 else (-1 if vel < -0.25 else 0))
+        brightness = 0.9
+    blink = (t % 2.1) < 0.09
+    return _clawd(brightness, dx, dy, "closed" if blink else "open", look)
 
 
 def frame_sleep(t, touch=None):
-    """Clawd asleep, dazzler-style: dim, slow ember breathing, eyes closed —
-    with an occasional one-frame peek. Petting warms him and half-wakes the
-    eyes, like disturbing anyone at 3am.
+    """Clawd asleep: dim, slow breathing, eyes closed, occasional peek.
+
+    Petting warms him and half-wakes the eyes, like disturbing anyone
+    at 3am.
     """
     breath = 0.26 + 0.08 * math.sin(t * 2 * math.pi / 9.0)
     peek = (t % 9.7) < 0.4
@@ -630,154 +589,36 @@ def frame_sleep(t, touch=None):
                   "open" if peek else "closed", 0)
 
 
-def _blit(buf, x, y, color):
-    if 0 <= x < W and 0 <= y < H:
-        i = (y * W + x) * 3
-        buf[i], buf[i + 1], buf[i + 2] = color
-
-
-def _blit_text(buf, text, x0, y0, color):
-    """Render 3x5 FONT glyphs left to right with 1px spacing."""
-    x = x0
-    for ch in text:
-        for dy, row in enumerate(FONT.get(ch, FONT["?"])):
-            for dx, bit in enumerate(row):
-                if bit == "1":
-                    _blit(buf, x + dx, y0 + dy, color)
-        x += 4
-
-
-def frame_glyph(t, state):
-    """Double-tap info cards over a dimmed spark: time / sessions / battery."""
-    buf = bytearray(frame_awake(t))
-    for i, b in enumerate(buf):
-        buf[i] = int(b * 0.22)  # dim the spark so the card reads clearly
-    name, total, thinking, battery, pet = state.glyph_snapshot(time.time())
-    if name == "pet":
-        level = pet["level"] if pet else 1
-        hunger = pet["hunger"] if pet else 50.0
-        _blit_text(buf, str(min(int(level), 99)), 2, 2, CORAL)
-        _blit(buf, 11, 3, (255, 90, 110))   # a small heart, honestly
-        _blit(buf, 13, 3, (255, 90, 110))
-        for dx in range(11, 14):
-            _blit(buf, dx, 4, (255, 90, 110))
-        _blit(buf, 12, 5, (255, 90, 110))
-        color = ((80, 220, 100) if hunger >= 40 else
-                 (255, 176, 32) if hunger >= 20 else (255, 60, 50))
-        for x in range(1, 14):              # hunger bar frame
-            _blit(buf, x, 10, (60, 45, 40))
-            _blit(buf, x, 12, (60, 45, 40))
-        for x in range(1, 1 + round(min(100, max(0, hunger)) / 100 * 13)):
-            _blit(buf, x, 11, color)
-    elif name == "time":
-        tm = time.localtime()
-        white = (210, 210, 225)
-        _blit_text(buf, f"{tm.tm_hour:02d}", 4, 2, white)
-        _blit_text(buf, f"{tm.tm_min:02d}", 4, 9, white)
-    elif name == "sessions":
-        _blit_text(buf, str(min(total, 9)), 6, 4, CORAL)
-        for i in range(min(total, 13)):  # dot row: bright = thinking
-            _blit(buf, 1 + i, 12,
-                  (255, 170, 120) if i < thinking else (70, 40, 28))
-    else:  # battery
-        if battery is None:
-            level, color = 0, (110, 110, 130)
-        else:
-            level = max(0, min(100, int(battery)))
-            color = ((80, 220, 100) if level >= 50 else
-                     (255, 176, 32) if level >= 20 else (255, 60, 50))
-        for x in range(2, 13):          # case outline
-            _blit(buf, x, 5, color)
-            _blit(buf, x, 9, color)
-        for y in range(5, 10):
-            _blit(buf, 2, y, color)
-            _blit(buf, 12, y, color)
-        for y in range(6, 9):           # positive terminal
-            _blit(buf, 13, y, color)
-        fill = round(level / 100 * 9)
-        for x in range(3, 3 + fill):    # charge bar
-            for y in range(6, 9):
-                _blit(buf, x, y, color)
-    return buf
-
-
-def frame_notify(t, state=None, touch=None):
-    """Clawd needs you: he waves an arm and pulses brighter. Tap to ack.
-
-    (No amber ring — Rod's call. The wave is dazzler's 'wave' sequence.)
-    """
-    vigor = state.pet_vigor() if state else 1.0
+def frame_notify(t, vigor=1.0):
+    """Clawd needs you: right arm raised, waving, gentle pulse. Tap to ack."""
     pulse = (0.78 + 0.22 * math.sin(t * 2 * math.pi * 1.4)) * max(0.7, vigor)
-    wave = -2 if (t * 2.4) % 1.0 < 0.5 else -1  # right arm raised, beckoning
+    wave_up = (t * 2.4) % 1.0 < 0.5
     blink = (t % 4.3) < 0.13
     return _clawd(pulse, 0, 0, "closed" if blink else "open", 0,
-                  arm_r_dy=wave)
+                  arm_r_dy=-2 if wave_up else -1)
 
 
-def frame_celebrate(t, rng):
-    """Expanding ring + sparkles bursting from the center."""
-    prog = t / CELEBRATE_SECONDS
-    ring_r = prog * RMAX * 1.3
-    fade = max(0.0, 1.0 - prog)
-    px = bytearray()
-    sparkles = {(rng.randrange(W), rng.randrange(H)): rng.random()
-                for _ in range(26)}
-    rng.seed(rng.random())  # advance so sparkles shimmer frame to frame
-    for y in range(H):
-        for x in range(W):
-            d = math.hypot(x - CX, y - CY)
-            ring = max(0.0, 1.0 - abs(d - ring_r) / 1.5) * fade
-            sp = sparkles.get((x, y), 0.0) * fade
-            r = min(255, int(AMBER[0] * ring + 255 * sp))
-            g = min(255, int(AMBER[1] * ring + 235 * sp))
-            b = min(255, int(AMBER[2] * ring + 170 * sp))
-            px += bytes((r, g, b))
-    return px
+def frame_celebrate(rel):
+    """Task landed: both arms up, jumping. (dazzler's celebrate, in 15x15.)"""
+    bounce = abs(math.sin(rel * math.pi / 0.6))  # two full hops per burst
+    return _clawd(1.0, 0, -round(2 * bounce), "open", 0,
+                  arm_l_dy=-2, arm_r_dy=-2)
 
 
-def build_frame(mood, t, phase, energy, state, touch):
+def build_frame(mood, t, phase, state, touch):
+    now = time.time()
+    notice = state.notice_look(now)
     if mood == "thinking":
-        return frame_thinking(phase, energy, touch)
+        return frame_thinking(phase, t, touch, notice)
     if mood == "sleep":
         return frame_sleep(t, touch)
     if mood == "notify":
-        return frame_notify(t, state, touch)
-    if mood == "glyph":
-        return frame_glyph(t, state)
+        return frame_notify(t, state.pet_vigor())
     if mood == "celebrate":
         with state.lock:
-            rel = CELEBRATE_SECONDS - (state.oneshot_until - time.time())
-            rng = state.oneshot_rng
-        return frame_celebrate(max(0.0, rel), rng)
-    return frame_awake(t, touch, state.pet_vigor())
-
-
-def overlay_level(kind, age, x, y):
-    """0..1 contribution of a one-shot event at pixel (x, y)."""
-    if kind == "ripple":  # thin ring expanding from center
-        prog = age / EVENT_TTL["ripple"]
-        d = math.hypot(x - CX, y - CY)
-        return max(0.0, 1.0 - abs(d - prog * (RMAX + 2)) / 1.2) * (1.0 - prog)
-    if kind == "wave":    # horizontal band sweeping bottom -> top
-        prog = age / EVENT_TTL["wave"]
-        yc = (H + 3) - prog * (H + 6)
-        return max(0.0, 1.0 - abs(y - yc) / 2.0) * (1.0 - prog)
-    if kind == "flash":   # whole-glass flash, fast decay
-        return (1.0 - age / EVENT_TTL["flash"]) ** 2 * 0.9
-    return 0.0
-
-
-def apply_overlays(buf, events, now):
-    for kind, color, started in events:
-        age = now - started
-        for y in range(H):
-            for x in range(W):
-                lv = overlay_level(kind, age, x, y)
-                if lv <= 0.0:
-                    continue
-                i = (y * W + x) * 3
-                for c in range(3):
-                    buf[i + c] = min(255, buf[i + c] + int(color[c] * lv))
+            rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
+        return frame_celebrate(max(0.0, rel))
+    return frame_awake(t, touch, state.pet_vigor(), notice)
 
 
 # ------------------------------------------------------------------ plumbing
@@ -786,8 +627,17 @@ def log(msg):
     print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
+def load_config():
+    path = os.path.expanduser("~/.config/clawdpad/config.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def discover_block(sock):
-    sock.sendall(b'{"type": "discover", "id": "cbd-1"}\n')
+    sock.sendall(b'{"type": "discover", "id": "cpd-1"}\n')
     buf = b""
     while b"\n" not in buf:
         chunk = sock.recv(4096)
@@ -843,12 +693,8 @@ def render_loop(state):
                     energy = state.tick(dt)
                     phase += dt * (2.5 + 4.5 * energy)
                     touch = state.touch_snapshot()
-                    frame = build_frame(mood, mono - start, phase,
-                                        energy, state, touch)
-                    events = state.active_events(now)
-                    if events:
-                        apply_overlays(frame, events, now)
-                    sock.sendall(header + frame)
+                    sock.sendall(header + build_frame(
+                        mood, mono - start, phase, state, touch))
                     ack = sock.recv(1)
                     if not ack:
                         raise ConnectionError("blocksd closed")
@@ -868,8 +714,8 @@ def render_loop(state):
 def touch_loop(state):
     """Feed blocksd touch events into the state machine.
 
-    tap on notify → acknowledge · hold → petting (live x/y/pressure) ·
-    double-tap → info glyph cards.
+    tap on notify → acknowledge · single tap → he looks at you ·
+    hold/slide → petting · double-tap → celebrate jump.
     """
     while True:
         path = blocksd_socket()
@@ -905,9 +751,10 @@ def touch_loop(state):
                         elif action == "move":
                             state.touch_move(x, y, z)
                         elif action == "end":
-                            glyph = state.touch_end(now)
-                            if glyph:
-                                log(f"double-tap → {glyph} glyph")
+                            if state.touch_end(now) == "jump":
+                                log("double-tap → celebrate")
+                                if state.player and state.jingle_on_celebrate:
+                                    state.player.auto_jingle(now)
         except (OSError, ConnectionError):
             time.sleep(5)
 
@@ -943,6 +790,8 @@ def handle_client(state, conn):
                     line, buf = buf.split(b"\n", 1)
                     try:
                         msg = json.loads(line)
+                        if not isinstance(msg, dict):
+                            raise ValueError
                     except ValueError:
                         reply = {"ok": False, "error": "bad json"}
                     else:
@@ -950,15 +799,6 @@ def handle_client(state, conn):
                     conn.sendall(json.dumps(reply).encode() + b"\n")
         except (OSError, TimeoutError):
             return
-
-
-def load_config():
-    path = os.path.expanduser("~/.config/claudeblock/config.json")
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
 
 
 class RemoteHandler(http.server.BaseHTTPRequestHandler):
@@ -1073,8 +913,6 @@ def main():
         threading.Thread(target=ntfy_loop,
                          args=(state, cfg["ntfy_topic"], token),
                          daemon=True).start()
-    if not token:
-        log("no ~/.config/claudeblock/config.json — remote surfaces off")
     render_loop(state)  # never returns
 
 

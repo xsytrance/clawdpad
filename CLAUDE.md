@@ -1,11 +1,13 @@
-# claudeblock — working notes for Claude
+# clawdpad — working notes for Claude
 
-Claude's second body: a ROLI Lightpad Block M (15×15 RGB, 4D touch, USB-C).
-Sister project to `~/dazzler`; both bodies are driven by the same Claude Code
-hooks via `~/bin/claudebody`. Read `README.md` for status, `docs/PLAN.md` for
-the roadmap, `docs/BLOCKSD-FIXES.md` for the hard-won protocol debugging story.
+Clawd (the Claude Code mascot) living on a ROLI Lightpad Block M. Public
+project (MIT); Rod's install lives in `~/claudeblock` (dir predates the
+clawdpad rename — units/hooks point here, rename is cosmetic-only pending).
+Sister project `~/dazzler` (same soul on a MatrixPortal S3). Read `README.md`
+for the public story, `docs/PLAN.md` for history, `docs/BLOCKSD-FIXES.md`
+for the protocol war stories.
 
-## Architecture (all running as systemd --user services)
+## Architecture (systemd --user services)
 
 ```
 Claude Code hooks (~/.claude/settings.json)
@@ -13,89 +15,86 @@ Claude Code hooks (~/.claude/settings.json)
   │     → ~/bin/claudebody "$@"        (fans out to BOTH bodies, never fails)
   │         ├─ ~/dazzler/claudectl     (matrix body)
   │         └─ ~/claudeblock/blockctl  (this body)
-  └─ PreToolUse/PostToolUse → blockctl event-hook pre-tool|post-tool  (block-only)
+  └─ PreToolUse/PostToolUse → blockctl event-hook pre-tool|post-tool
+        (energy only — Clawd paces faster; no per-tool visuals)
 
-blockctl ──NDJSON──► claudeblockd.py (service: claudeblockd)
-                       │  moods · overlays · energy · touch · glyphs
-                       │  + HTTP :8137 (Bearer token) + ntfy.sh subscription
-                       ▼  685-byte binary frames (0xBD 0x01 u64-uid + 675B RGB888)
+blockctl ──NDJSON──► clawdpadd.py (service: clawdpadd)
+                       │  all-Clawd moods · touch · energy · music
+                       │  socket: $XDG_RUNTIME_DIR/clawdpad/clawdpad.sock
+                       │  optional HTTP :8137 + ntfy (config.json)
+                       ▼  685-byte frames (0xBD 0x01 u64-uid + 675B RGB888)
                      blocksd (service: blocksd; VENDORED — vendor/blocksd,
-                       │       pip install -e; NOT the PyPI copy)
+                       │       pip install -e; patches/ = shareable fixes)
                        ▼  SysEx over USB MIDI
                      Lightpad Block M (serial LPM9E1KL3HO9XC5G)
 ```
 
 ## Iron rules
 
-- **blocksd must always run** — the block powers itself off without its
-  keepalive. After a host reboot someone must press the block's power button.
-- **blocksd is installed editable from `vendor/blocksd`** which carries two
-  local fixes (assembler jump-base bug + LED program upload — see
-  docs/BLOCKSD-FIXES.md). Never `pip install -U blocksd`; edit vendor and
-  `systemctl --user restart blocksd`.
-- **Never run `blocksd led ...` CLI while the daemon runs** (spawns a second
-  competing API-mode host).
-- Frame "acks" from the blocksd socket ≠ pixels rendered. Device-side
-  LittleFoot faults only show with `blocksd run --verbose`
-  (`Device N log: Illegal instruction`).
-- blocksd needs `/dev/snd/seq`; xsyprime isn't in the `audio` group, so scans
-  fail with "Permission denied" between boot and console login (harmless,
-  self-heals; permanent fix: `sudo usermod -aG audio xsyprime`).
+- **blocksd must always run** — the block powers off without its keepalive.
+  After a host reboot someone must press the block's power button.
+- **blocksd is installed editable from `vendor/blocksd`** (branch
+  `fix/littlefoot-jump-base`, two commits, exported to `patches/`). Never
+  `pip install -U blocksd`. Edit vendor → `systemctl --user restart blocksd`.
+- **Never run `blocksd led ...` CLI while the daemon runs.**
+- Frame "acks" ≠ pixels rendered. Device-side LittleFoot faults only show
+  with `blocksd run --verbose` ("Device N log: Illegal instruction").
+- **Sprites must be solid chunky shapes** — the woven surface diffuses thin
+  1-px rays into disconnected dots ("creepy spider" incident, 2026-07-15).
+- **Everything on the glass is Clawd's body language.** No abstract effects
+  (vortex/ripples/rings/glyph cards were built and deliberately removed at
+  Rod's request). New feelings = new poses/gaits for `_clawd()`.
+- **One soul, two bodies**: `~/dazzler/state.json` is owned by dazzler's
+  petd.py. pet_loop mirrors it READ-ONLY; never write it, never fork a pet.
 - Touch events on the wire use field `index` (docs say `touch_index`).
-- **One soul, two bodies**: Clawd's pet state (`~/dazzler/state.json`) is
-  owned by dazzler's petd.py. claudeblockd mirrors it READ-ONLY (pet_loop) —
-  never write it, never fork a second pet. Feeding happens in
-  `~/dazzler/feed/`; care sessions live in dazzler (care-prompt.md, which
-  whispers through claudebody so both bodies speak).
+- xsyprime isn't in the `audio` group: blocksd MIDI scans fail between boot
+  and console login (self-heals; fix: `sudo usermod -aG audio xsyprime`).
 
 ## Daily commands
 
 ```bash
-./blockctl status                # mood · block · energy · sessions
-./blockctl mode thinking         # manual mood (hooks reclaim control)
-./blockctl say "hi" -t 60        # notify ring; tap block to ack
-./blockctl anim celebrate        # fireworks
-./blockctl glyph battery         # info card (double-tap does this too)
-./blockctl play jingle           # sound + celebrate light (also: hello, chime)
-./blockctl hum on                # quiet pad while thinking (off by default)
-./blockctl clear
-journalctl --user -u claudeblockd -f
-systemctl --user restart claudeblockd   # after editing claudeblockd.py
+./blockctl status                # mood · block · energy · soul · sessions
+./blockctl mode awake            # summon Clawd (sticky until next prompt)
+./blockctl say "hi" -t 60        # notify: wave + chime; tap to ack
+./blockctl anim celebrate        # jump, arms up (+ jingle, rate-limited)
+./blockctl play jingle           # sound + jump  (also: hello, chime)
+./blockctl hum on                # quiet pad while thinking
+journalctl --user -u clawdpadd -f
+systemctl --user restart clawdpadd    # after editing clawdpadd.py
 ```
 
-Remote: HTTP `POST http://<lan-or-tailscale>:8137/` with
-`Authorization: Bearer <token>`, or publish JSON (with `"token"` field) to the
-secret ntfy.sh topic — secrets in `~/.config/claudeblock/config.json` (0600).
-Recipes: docs/PHONE-WATCH.md. Restarting claudeblockd re-binds :8137; the
-permission classifier may require Rod to run that restart himself.
+Secrets/config: `~/.config/clawdpad/config.json` (0600). Restarting
+clawdpadd re-binds :8137 — the permission classifier may require Rod to run
+that restart himself.
 
 ## Code map
 
-- `claudeblockd.py` — the presence engine. One file on purpose. Threads:
-  render loop (owns blocksd frame stream, reconnects forever), touch loop,
-  Unix-socket command server, HTTP server, ntfy long-poll. `State` holds
-  everything under one lock. Moods render procedurally at 20 fps (sleep 8);
-  one-shot overlays (ripple/wave/flash) composite additively over any mood;
-  `energy` (tau 25 s) scales vortex speed via a phase accumulator (never
+- `clawdpadd.py` — the daemon, one stdlib-only file. Threads: render loop
+  (owns the frame stream, reconnects forever), touch loop, command server,
+  pet/hum loops, optional HTTP + ntfy. `State` under one lock. `_clawd()`
+  renders the icon (CLAWD_BODY/ARMS/LEGS/EYES consts, scaled from the
+  official SVG rects via dazzler's make_clawd.py); frame_* compose poses.
+  Energy (tau 25 s) drives a phase accumulator → pacing speed (never
   multiply t by a time-varying speed — it jumps).
-- `blockctl` — stdlib-only client, claudectl-compatible vocabulary, exits 0
-  silently when the daemon is absent (hooks must never fail). Tool-class
-  ripple palette + test/fail regexes live here.
-- `tools/` — firstlight.py (hello-world streamer), paint.py (touch demo),
-  touchtest.py. Good protocol references.
-- `vendor/blocksd` — vendored dependency with local fixes; has its own
-  CLAUDE.md with the full SysEx protocol reference.
+- `blockctl` — stdlib CLI, claudectl-compatible, silent exit 0 when the
+  daemon is absent. Test/fail regexes for post-tool energy live here.
+- `patches/` — the two blocksd fixes as git am-able patches (for sharing
+  and the upstream PR).
+- `systemd/` — portable unit templates (%h paths).
+- `tools/` — firstlight.py, paint.py, touchtest.py (protocol references).
 
 ## Testing without hardware eyes
 
-Claude cannot see the glass. `blockctl status`, claudeblockd journal, and
-blocksd `--verbose` device logs are the observables; for anything visual, ask
-Rod to look. For sprite/animation work, preview frames as ASCII before
-shipping — import claudeblockd, call a frame function, and print a 15×15
-brightness grid (see the Clawd redesign session for the pattern):
+Claude cannot see the glass. For sprite/animation work, preview frames as
+ASCII before shipping:
 
 ```python
-buf = claudeblockd.frame_awake(1.0)
-# (y*15+x)*3 indexes RGB; map luminance to . - + # and EYE color to @
-``` The `hermes360`/`dazzler` sessions appearing in `blockctl
-sessions` are Rod's other live Claude sessions — real traffic, not test data.
+import clawdpadd
+buf = clawdpadd.frame_awake(1.0)   # or any frame_*
+# (y*15+x)*3 indexes RGB; map luminance to . + #
+```
+
+`blockctl status`, the clawdpadd journal, and blocksd `--verbose` device
+logs are the observables; for anything visual, ask Rod to look. Sessions
+named `hermes360`/`dazzler` in `blockctl sessions` are Rod's other live
+Claude sessions — real traffic, not test data.

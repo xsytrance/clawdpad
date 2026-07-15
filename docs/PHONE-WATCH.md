@@ -1,11 +1,11 @@
 # Phone + watch control (Phase 3)
 
-`claudeblockd` exposes two remote command surfaces, both speaking the same JSON
-schema as the Unix socket. Secrets live in `~/.config/claudeblock/config.json`
+`clawdpadd` exposes two remote command surfaces, both speaking the same JSON
+schema as the Unix socket. Secrets live in `~/.config/clawdpad/config.json`
 (mode 0600, never commit it). Print them when you need them:
 
 ```bash
-python3 -m json.tool ~/.config/claudeblock/config.json
+python3 -m json.tool ~/.config/clawdpad/config.json
 ```
 
 - **HTTP (LAN / Tailscale):** `POST http://<host>:8137/` with header
@@ -25,12 +25,11 @@ curl -d '{"token":"<token>","cmd":"anim","arg":"celebrate"}' \
 
 | action | JSON body |
 |---|---|
-| spin the vortex | `{"cmd":"mode","arg":"thinking"}` |
+| set him pacing (thinking) | `{"cmd":"mode","arg":"thinking"}` |
 | back to idle | `{"cmd":"clear"}` |
 | bedtime | `{"cmd":"mode","arg":"sleep"}` |
 | ping Claude's glass | `{"cmd":"say","arg":"hi from the phone","seconds":60}` |
-| fireworks | `{"cmd":"anim","arg":"celebrate"}` |
-| info card on the glass | `{"cmd":"glyph","arg":"time"}` (or `sessions`, `battery`) |
+| celebrate jump | `{"cmd":"anim","arg":"celebrate"}` |
 | jingle (sound at the desk + light) | `{"cmd":"play","arg":"jingle"}` |
 | thinking hum on/off | `{"cmd":"hum","arg":"on"}` / `"off"` |
 | status (HTTP GET /status) | — |

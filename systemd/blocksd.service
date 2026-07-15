@@ -1,0 +1,22 @@
+[Unit]
+Description=ROLI Blocks Device Manager
+Documentation=https://github.com/hyperb1iss/blocksd
+After=sound.target
+Wants=sound.target
+
+[Service]
+# blocksd from your clawdpad venv (with the patches/ fixes applied).
+ExecStart=%h/clawdpad/.venv/bin/blocksd run --daemon
+Restart=on-failure
+RestartSec=5
+WatchdogSec=30
+
+# Security hardening (user-service safe subset)
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=default.target
