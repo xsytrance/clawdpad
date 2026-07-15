@@ -98,6 +98,12 @@ MINI_W, MINI_H = 5, 5   # body + legs footprint (arms poke 1px each side)
 # One soul, two bodies: Clawd's pet state is OWNED by dazzler (petd.py writes
 # it; a systemd timer ticks it). This body only mirrors it — never writes.
 PET_STATE = os.path.expanduser("~/dazzler/state.json")
+# Remote fan-out to the matrix body (config "matrix_fanout"): commands that
+# arrive over HTTP/ntfy also reach dazzler via claudectl, so a phone command
+# moves BOTH bodies. Local commands don't fan out — hooks already use
+# claudebody for that, and doubling up would write the overlay twice.
+MATRIX_CTL = os.path.expanduser("~/dazzler/claudectl")
+MATRIX_CMDS = {"say", "anim", "clear", "mode"}
 PET_VIGOR = {"full": 1.0, "content": 1.0, "peckish": 0.85,
              "hungry": 0.70, "starving": 0.55}  # brightness factor by mood
 
@@ -140,6 +146,7 @@ class State:
         self.pet = None             # mirrored from dazzler's state.json
         self.last_say_chime = 0.0
         self.size = "full"          # "full" | "mini" (config "size", cmd size)
+        self.matrix_fanout = False  # config "matrix_fanout"
         self.qr_until = 0.0         # Micro QR takeover window
         self.qr_matrix = None       # 15x15 bool rows
 
@@ -172,8 +179,30 @@ class State:
     def celebrate(self, now):
         self.oneshot_until = now + CELEBRATE_SECONDS
 
-    def apply(self, msg, now):
+    def matrix_relay(self, msg):
+        """Mirror a remote command onto the dazzler matrix via claudectl."""
         cmd = msg.get("cmd")
+        argv = None
+        if cmd == "say":
+            argv = ["say", str(msg.get("arg", "")),
+                    "-t", str(float(msg.get("seconds", 30)))]
+        elif cmd == "anim":
+            argv = ["anim", str(msg.get("arg", "celebrate"))]
+        elif cmd == "clear":
+            argv = ["clear"]
+        elif cmd == "mode":
+            arg = str(msg.get("arg", "awake")).lower()
+            if arg in ("awake", "thinking", "sleep"):
+                argv = ["mode", arg]
+        if argv and os.path.exists(MATRIX_CTL):
+            subprocess.Popen([MATRIX_CTL] + argv,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+
+    def apply(self, msg, now, remote=False):
+        cmd = msg.get("cmd")
+        if remote and self.matrix_fanout and cmd in MATRIX_CMDS:
+            self.matrix_relay(msg)
         with self.lock:
             if cmd == "event-hook":
                 kind = msg.get("kind", "prompt")
@@ -964,7 +993,7 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
                 raise ValueError
         except (ValueError, OSError):
             return self._reply(400, {"ok": False, "error": "bad json"})
-        reply = self.state.apply(msg, time.time())
+        reply = self.state.apply(msg, time.time(), remote=True)
         self._reply(200 if reply.get("ok") else 400, reply)
         log(f"http command: {msg.get('cmd')}")
 
@@ -1049,7 +1078,7 @@ def ntfy_loop(state, topic, token):
                     if not hmac.compare_digest(supplied, token):
                         log("ntfy message with bad token ignored")
                         continue
-                    state.apply(msg, time.time())
+                    state.apply(msg, time.time(), remote=True)
                     log(f"ntfy command: {msg.get('cmd')}")
         except OSError as e:
             log(f"ntfy link dropped ({e}); retrying in 15s")
@@ -1064,6 +1093,7 @@ def main():
     state.jingle_on_celebrate = bool(cfg.get("jingle_on_celebrate", True))
     if cfg.get("size") in ("full", "mini"):
         state.size = cfg["size"]
+    state.matrix_fanout = bool(cfg.get("matrix_fanout", False))
     # pre-render all sounds off the hot path so play() never blocks the lock
     threading.Thread(
         target=lambda: [state.player._wav(n)

@@ -10,6 +10,9 @@ ExecStart=%h/clawdpad/.venv/bin/python %h/clawdpad/clawdpadd.py
 Restart=always
 RestartSec=5
 RuntimeDirectory=clawdpad
+# If you use matrix_fanout (dazzler sister project), let the sandbox write
+# to the CIRCUITPY drive:
+#ReadWritePaths=/run/media/%u/CIRCUITPY
 RuntimeDirectoryMode=0700
 
 # Security hardening (user-service safe subset)

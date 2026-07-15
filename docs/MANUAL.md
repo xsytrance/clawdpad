@@ -81,6 +81,10 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
   `{"cmd":"anim","arg":"celebrate"}`. `GET /status` for state.
 - **Anywhere**: publish the same JSON (plus `"token": "…"`) to your secret
   ntfy.sh topic.
+- **Both bodies**: with `"matrix_fanout": true`, remote say/anim/mode/clear
+  commands also reach the dazzler matrix (via claudectl) — one phone
+  command moves the whole household. Local hooks already fan out via
+  claudebody, so this only applies to HTTP/ntfy commands.
 - **Push updates**: set `"state_echo": true` and every mood transition is
   published to the topic — subscribe with the ntfy phone app and your
   phone buzzes when Clawd needs you (notify goes out at high priority;
@@ -111,6 +115,7 @@ Phone/watch recipes: PHONE-WATCH.md · WATCH.md.
 | `http_port` | — | LAN command port (8137 conventional) |
 | `ntfy_topic` | — | secret topic for remote commands + echoes |
 | `state_echo` | false | publish state transitions to the topic |
+| `matrix_fanout` | false | relay remote commands to the dazzler matrix too |
 | `jingle_on_celebrate` | true | auto-jingle when tasks land |
 | `thinking_hum` | false | ambient pad while thinking |
 | `size` | "full" | boot size |
