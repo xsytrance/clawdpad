@@ -310,9 +310,22 @@ const Clawd = {
     { id: "crown", emoji: "👑", label: "royalty" },
     { id: "phones", emoji: "🎧", label: "vibin'" },
     { id: "scarf", emoji: "🧣", label: "cozy" },
+    { id: "bow", emoji: "🎀", label: "cutie" },
+    { id: "halo", emoji: "😇", label: "angel" },
+    { id: "horns", emoji: "😈", label: "lil devil" },
+    { id: "wizard", emoji: "🧙", label: "wizard" },
+    { id: "cowboy", emoji: "🤠", label: "howdy" },
+    { id: "flower", emoji: "🌻", label: "bloom" },
     { id: "ghost", emoji: "👻", label: "spooky pal", skin: true },
     { id: "puff", emoji: "🌸", label: "pink puff", skin: true },
     { id: "chomper", emoji: "🟡", label: "chomper", skin: true },
+    { id: "robot", emoji: "🤖", label: "beep boop", skin: true },
+    { id: "cat", emoji: "🐱", label: "kitty", skin: true },
+    { id: "frog", emoji: "🐸", label: "froggy", skin: true },
+    { id: "alien", emoji: "👽", label: "alien", skin: true },
+    { id: "pumpkin", emoji: "🎃", label: "spooky", skin: true },
+    { id: "star", emoji: "⭐", label: "superstar", skin: true },
+    { id: "bee", emoji: "🐝", label: "buzzy", skin: true },
   ],
 
   px(buf, x, y, r, g, b) {
@@ -441,7 +454,149 @@ const Clawd = {
       for (let x = 4; x <= 10; x++) P(x + dx, 11 + dy, 170, 45, 45);
       P(10 + dx, 12 + dy, 200, 60, 60);
       if (Math.sin(t * 2.3) > 0.3) P(11 + dx, 12 + dy, 200, 60, 60);
+    } else if (id === "bow") {           // bowtie under the chin
+      P(6 + dx, 10 + dy, 235, 90, 140); P(8 + dx, 10 + dy, 235, 90, 140);
+      P(7 + dx, 10 + dy, 255, 150, 190);
+      P(6 + dx, 9 + dy, 235, 90, 140); P(8 + dx, 9 + dy, 235, 90, 140);
+    } else if (id === "halo") {          // floating gold ring
+      for (let x = 5; x <= 9; x++) P(x + dx, 0 + dy, 255, 225, 90);
+      P(5 + dx, 1 + dy, 255, 225, 90); P(9 + dx, 1 + dy, 255, 225, 90);
+    } else if (id === "horns") {         // little devil horns
+      P(3 + dx, 2 + dy, 200, 40, 40); P(3 + dx, 1 + dy, 220, 60, 60);
+      P(11 + dx, 2 + dy, 200, 40, 40); P(11 + dx, 1 + dy, 220, 60, 60);
+    } else if (id === "wizard") {        // tall starry hat
+      P(7 + dx, 0 + dy, 120, 80, 200);
+      for (let x = 6; x <= 8; x++) P(x + dx, 1 + dy, 120, 80, 200);
+      for (let x = 4; x <= 10; x++) P(x + dx, 2 + dy, 100, 66, 175);
+      P(7 + dx, 1 + dy, 255, 235, 120);   // star
+    } else if (id === "cowboy") {        // wide-brim hat
+      for (let x = 2; x <= 12; x++) P(x + dx, 2 + dy, 150, 100, 55);
+      for (let x = 5; x <= 9; x++) P(x + dx, 1 + dy, 120, 80, 45);
+      for (let x = 5; x <= 9; x++) P(x + dx, 0 + dy, 120, 80, 45);
+    } else if (id === "flower") {        // a happy bloom on his head
+      P(7 + dx, 0 + dy, 255, 210, 70);   // center
+      P(6 + dx, 0 + dy, 235, 100, 170); P(8 + dx, 0 + dy, 235, 100, 170);
+      P(7 + dx, 1 + dy, 90, 190, 90);    // petal below / stem hint
     }
+  },
+
+
+  robot(brightness, dx, dy, eyesOpen) {
+    const buf = new Uint8Array(675);
+    const s = 200 * brightness, d = 120 * brightness;
+    for (let y = 3; y <= 11; y++) for (let x = 3; x <= 11; x++)
+      this.px(buf, x + dx, y + dy, s, s, 210 * brightness);
+    for (let x = 2; x <= 12; x++) { this.px(buf, x + dx, 3 + dy, d, d, d);
+      this.px(buf, x + dx, 11 + dy, d, d, d); }
+    this.px(buf, 7 + dx, 1 + dy, d, d, d);      // antenna
+    this.px(buf, 7 + dx, 0 + dy, 255, 80, 80);
+    for (const ex of [5, 9]) {                   // square eyes
+      const on = eyesOpen ? [90, 220, 255] : [40, 60, 70];
+      this.px(buf, ex + dx, 6 + dy, on[0]*brightness, on[1]*brightness, on[2]*brightness);
+    }
+    for (let x = 5; x <= 9; x++) this.px(buf, x + dx, 8 + dy, d, d, d); // mouth grille
+    for (const lx of [4, 10]) { this.px(buf, lx + dx, 12 + dy, d, d, d);
+      this.px(buf, lx + dx, 13 + dy, d, d, d); }
+    return buf;
+  },
+
+  cat(brightness, dx, dy, eyesOpen, look, t) {
+    const buf = this.body(brightness, dx, dy, eyesOpen, look, 0, 0,
+      [230, 150, 90]);
+    for (const ex of [2, 12]) {                  // triangle ears
+      this.px(buf, ex + dx, 2 + dy, 230*brightness, 150*brightness, 90*brightness);
+      this.px(buf, ex + dx, 1 + dy, 200*brightness, 120*brightness, 70*brightness);
+    }
+    for (const s of [-1, 1]) {                    // whiskers
+      this.px(buf, 7 + s*4 + dx, 7 + dy, 240, 240, 230);
+      this.px(buf, 7 + s*5 + dx, 7 + dy, 240, 240, 230);
+    }
+    this.px(buf, 7 + dx, 7 + dy, 255, 150, 170);  // lil nose
+    return buf;
+  },
+
+  frog(brightness, dx, dy, eyesOpen) {
+    const buf = new Uint8Array(675);
+    const g = 120 * brightness, gd = 80 * brightness;
+    for (let y = 4; y <= 11; y++) for (let x = 2; x <= 12; x++)
+      if (Math.hypot(x - 7 - dx, y - 7.5 - dy) < 5.4)
+        this.px(buf, x + dx, y + dy, gd, 190*brightness, gd);
+    for (const ex of [4, 10]) {                   // bulging eyes on top
+      this.px(buf, ex + dx, 3 + dy, 210*brightness, 240*brightness, 210*brightness);
+      this.px(buf, ex + dx, 2 + dy, 210*brightness, 240*brightness, 210*brightness);
+      if (eyesOpen) this.px(buf, ex + dx, 3 + dy, 20, 30, 20);
+    }
+    for (let x = 5; x <= 9; x++) this.px(buf, x + dx, 9 + dy, 40, 90, 40); // smile
+    return buf;
+  },
+
+  alien(brightness, dx, dy, eyesOpen) {
+    const buf = new Uint8Array(675);
+    for (let y = 2; y <= 12; y++) for (let x = 3; x <= 11; x++) {
+      const w = 1 - Math.abs(y - 5) * 0.06;      // big head, narrow chin
+      if (Math.abs(x - 7 - dx) < 4.2 * w)
+        this.px(buf, x + dx, y + dy, 120*brightness, 210*brightness, 120*brightness);
+    }
+    for (const ex of [-2, 2]) {                   // big almond eyes
+      for (let d2 = 0; d2 <= 1; d2++) {
+        this.px(buf, 7 + ex + dx, 5 + dy, 10, 15, 10);
+        this.px(buf, 7 + ex + dx - Math.sign(ex), 5 + dy, 10, 15, 10);
+        this.px(buf, 7 + ex + dx, 6 + dy, 10, 15, 10);
+      }
+    }
+    return buf;
+  },
+
+  pumpkin(brightness, dx, dy, eyesOpen, t) {
+    const buf = new Uint8Array(675);
+    for (let y = 2; y <= 12; y++) for (let x = 1; x <= 13; x++)
+      if (Math.hypot((x - 7 - dx) * 0.85, y - 7 - dy) < 5.6)
+        this.px(buf, x + dx, y + dy, 255*brightness, 140*brightness, 20*brightness);
+    this.px(buf, 7 + dx, 1 + dy, 90*brightness, 150*brightness, 60*brightness); // stem
+    const glow = eyesOpen ? 30 : 10;             // carved face glows dark
+    for (const ex of [4, 10]) {                   // triangle eyes
+      this.px(buf, ex + dx, 5 + dy, glow, glow, glow);
+      this.px(buf, ex + dx, 6 + dy, glow, glow, glow);
+    }
+    this.px(buf, 7 + dx, 6 + dy, glow, glow, glow);       // nose
+    for (let x = 4; x <= 10; x++) this.px(buf, x + dx, 9 + dy, glow, glow, glow);
+    for (const x of [5, 7, 9]) this.px(buf, x + dx, 8 + dy, glow, glow, glow); // teeth
+    return buf;
+  },
+
+  star(brightness, dx, dy, eyesOpen) {
+    const buf = new Uint8Array(675);
+    const y0 = 205 * brightness;
+    // 5-point star, hand-tuned on 15x15
+    const rows = [
+      "0000001000000","0000011100000","0000011100000","1111111111111",
+      "0111111111110","0011111111100","0001111111000","0011111111100",
+      "0011110111100","0111100011110","0110000000110","0000000000000"];
+    for (let r = 0; r < rows.length; r++)
+      for (let c = 0; c < 13; c++)
+        if (rows[r][c] === "1")
+          this.px(buf, c + 1 + dx, r + 1 + dy, 255*brightness, y0, 60*brightness);
+    for (const ex of [5, 9])                      // eyes
+      if (eyesOpen) this.px(buf, ex + dx, 6 + dy, 40, 30, 10);
+    return buf;
+  },
+
+  bee(brightness, dx, dy, eyesOpen, t) {
+    const buf = new Uint8Array(675);
+    for (let y = 5; y <= 11; y++) for (let x = 4; x <= 10; x++)
+      if (Math.hypot(x - 7 - dx, y - 8 - dy) < 3.6) {
+        const stripe = ((y + dy) % 2 === 0);
+        this.px(buf, x + dx, y + dy,
+          stripe ? 30 : 255*brightness, stripe ? 25 : 210*brightness, stripe ? 20 : 30);
+      }
+    for (const wx of [3, 11]) {                    // flappy wings
+      const up = Math.sin(t * 12) > 0 ? 0 : 1;
+      this.px(buf, wx + dx, 5 + up + dy, 220, 230, 255);
+      this.px(buf, wx + (wx < 7 ? 1 : -1) + dx, 5 + up + dy, 220, 230, 255);
+    }
+    for (const ex of [6, 8])                        // eyes
+      if (eyesOpen) this.px(buf, ex + dx, 6 + dy, 15, 12, 8);
+    return buf;
   },
 
   dressed(brightness, dx, dy, eyesOpen, look, t, armL = 0, armR = 0, tint) {
@@ -451,6 +606,13 @@ const Clawd = {
     else if (c === "puff") buf = this.puff(brightness, dx, dy, eyesOpen, look);
     else if (c === "chomper")
       buf = this.chomper(brightness, dx, dy, t, Math.sin(t * 0.13) >= 0);
+    else if (c === "robot") buf = this.robot(brightness, dx, dy, eyesOpen);
+    else if (c === "cat") buf = this.cat(brightness, dx, dy, eyesOpen, look, t);
+    else if (c === "frog") buf = this.frog(brightness, dx, dy, eyesOpen);
+    else if (c === "alien") buf = this.alien(brightness, dx, dy, eyesOpen);
+    else if (c === "pumpkin") buf = this.pumpkin(brightness, dx, dy, eyesOpen, t);
+    else if (c === "star") buf = this.star(brightness, dx, dy, eyesOpen);
+    else if (c === "bee") buf = this.bee(brightness, dx, dy, eyesOpen, t);
     else buf = this.body(brightness, dx, dy, eyesOpen, look, armL, armR, tint);
     const meta = this.COSTUMES.find(k => k.id === c);
     if (c !== "none" && meta && !meta.skin) this.prop(c, buf, dx, dy, look, t);
