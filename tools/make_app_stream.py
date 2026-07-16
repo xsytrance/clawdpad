@@ -104,7 +104,7 @@ def qr_frame(text):
         for x, v in enumerate(row):
             if v:
                 i = ((y + pad) * 15 + (x + pad)) * 3
-                buf[i] = buf[i + 1] = buf[i + 2] = 235
+                buf[i] = buf[i + 1] = buf[i + 2] = 140  # dim: 225 near-white px trips the battery current limiter
     return bytes(buf)
 
 
@@ -125,6 +125,12 @@ def main():
                  for i in range(int(13.0 * FPS))]),
             "wave": make_loop(frames(c.frame_notify, 2.5)),
             "jump": make_loop(frames(c.frame_celebrate, 2.4)),
+            "mini_wave": make_loop(
+                [c._mini_frame("notify", i / FPS, 0, None, 1.0)
+                 for i in range(int(2.5 * FPS))]),
+            "mini_jump": make_loop(
+                [c._mini_frame("celebrate", i / FPS, 0, None, 1.0)
+                 for i in range(int(2.4 * FPS))]),
             "qr": make_loop([qr_frame("CLAWDPAD")] * 2),
         },
     }
