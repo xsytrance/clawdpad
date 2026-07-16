@@ -88,13 +88,17 @@ class SoftBlock:
             n = (n + n * 2 + self.heap[i]) & 0xFFFF
         return n == stored
 
-    def glass(self):
+    def glass(self, expected=None):
         if not self.program_ok():
             return "BLANK (program checksum invalid)"
         off = len(PROGRAM)
-        lit = sum(1 for i in range(off, off + 450)
-                  if self.heap[i])
-        return f"renders: {lit}/450 frame bytes lit"
+        lit = sum(1 for i in range(off, off + 450) if self.heap[i])
+        out = f"renders: {lit}/450 frame bytes lit"
+        if expected is not None:
+            bad = sum(1 for i in range(450)
+                      if self.heap[off + i] != expected[i])
+            out += f" | vs expected frame: {bad} stale/wrong bytes"
+        return out
 
 
 class App:
@@ -135,21 +139,36 @@ class App:
             self.send_all(body[i % len(body)])
 
 
+sys.path.insert(0, ".")
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    "gen", "tools/make_app_stream.py")
+gen = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gen)
+
 block = SoftBlock()
 app = App(block)
+app.send_all(app.doc["boot"])   # program: once, like the real Streamer
 
-print("== connect, play full loop (2 cycles) ==")
+def expect_frame(fn, t):
+    return gen.rgb565(fn(t))
+
+import clawdpadd as c
+print("== boot + full (2 cycles) ==")
 app.play("full", frames=104)
-print(f"   {block.glass()}  acc={block.accepted} drop={block.dropped}")
+print("  ", block.glass(expect_frame(c.frame_awake, 0.0)),
+      f" acc={block.accepted} drop={block.dropped}")
 
-print("== press CHIBI ==")
+print("== press CHIBI (30 frames) ==")
 app.play("mini", frames=30)
-print(f"   {block.glass()}  acc={block.accepted} drop={block.dropped}")
+print("  ", block.glass(), f" acc={block.accepted} drop={block.dropped}")
 
-print("== press QR ==")
-app.play("qr")
-print(f"   {block.glass()}  acc={block.accepted} drop={block.dropped}")
+print("== press QR — the stale-pixel gauntlet ==")
+app.play("qr", frames=2)
+print("  ", block.glass(gen.rgb565(gen.qr_frame("CLAWDPAD", heartbeat=True))),
+      f" acc={block.accepted} drop={block.dropped}")
 
-print("== press FULL again ==")
-app.play("full", frames=10)
-print(f"   {block.glass()}  acc={block.accepted} drop={block.dropped}")
+print("== back to FULL ==")
+app.play("full", frames=52)
+print("  ", block.glass(expect_frame(c.frame_awake, 0.0)),
+      f" acc={block.accepted} drop={block.dropped}")

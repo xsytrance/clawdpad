@@ -80,8 +80,16 @@ def make_loop(frames):
     heap.set_bytes(0, program)
     drain(heap)  # deliver the program in simulation, then discard —
                  # loop intros start from a device that already has it
-    heap.set_bytes(len(program), rgb565(frames[0]))
+    # Two-pass frame sync: the device may hold ANY previous mood's pixels,
+    # and a plain diff-from-zeros skips zero bytes, leaving stale residue
+    # (the "QR bones under chibi" bug). Pass A paints a near-black
+    # sentinel over the whole frame area; pass B paints the real frame.
+    # Every byte either differs from the sentinel (written in B) or
+    # equals it (already correct from A) — full coverage, guaranteed.
+    heap.set_bytes(len(program), b"\x01" * (15 * 15 * 2))
     intro = drain(heap)
+    heap.set_bytes(len(program), rgb565(frames[0]))
+    intro += drain(heap)
     body = []
     for f in frames[1:] + [frames[0]]:
         heap.set_bytes(len(program), rgb565(f))
