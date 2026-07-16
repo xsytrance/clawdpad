@@ -137,6 +137,18 @@ order of discovery, over BLE via the MIDI BLE Connect bridge:
    USB-attached block identically (the app auto-connects on plug-in as of
    v0.2), and USB is the transport the protocol is proven on.
 
-Next for v0.2+: parse topology + ACKs (drop the power-cycle requirement),
-live Kotlin Clawd renderer instead of baked loops (touch reactions!),
-foreground service, native BLE probing to confirm the API-gate theory.
+**RESOLVED (v0.3, evening of the same day):** the real bug was an
+off-by-one in the packet index — the device ACKs counter 0 after
+topology, so the first data packet it accepts is #1; ours started at #0
+and the program-header packet was silently dropped. Found by capturing a
+working blocksd TX byte-log (BLOCKSD_TX_LOG env in the vendored
+connection.py) and diffing: identical except byte 7. The 'firmware gates
+API mode over BLE' theory is RETRACTED — finding #5 above was this same
+bug wearing a costume. v0.3 seeds the generator at index 1 and renumbers
+every packet live in Kotlin (golden-tested against the Python builder),
+making loops infinite. VERIFIED: Clawd animating on the block, hosted by
+a Pixel 10 Pro XL over USB-C, no computer. BLE retest pending.
+
+Next for v0.4+: parse topology + ACKs live (drop hardcoded index 9),
+Kotlin Clawd renderer instead of baked loops (touch reactions!),
+foreground service, BLE wireless verification.

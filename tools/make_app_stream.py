@@ -64,6 +64,10 @@ def make_loop(frames):
     f1..fn plus the wrap diff back to f0."""
     program = bitmap_led_program()
     heap = RemoteHeap(HEAP_SIZE)
+    # The device ACKs once (counter 0) right after topology, so the first
+    # data packet it will accept is index 1 — seed the heap accordingly.
+    # (Found by byte-diffing against a captured working blocksd session.)
+    heap.handle_ack(0)
     heap.set_bytes(0, program)
     heap.set_bytes(len(program), rgb565(frames[0]))
     intro = drain(heap)
