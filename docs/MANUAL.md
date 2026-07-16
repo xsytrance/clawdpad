@@ -111,7 +111,28 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
 
 Phone/watch recipes: PHONE-WATCH.md · WATCH.md.
 
-### The Android app (clawdpad-app) & browser control panel
+### The Android app (clawdpad-app) — Clawd's pocket brain
+
+One screen: his **live portrait** (LED-dot render — asleep when
+disconnected, breathing while hosting, dancing in music mode), a coral
+connect button, haptic **mood cards** (big clawd / chibi / wave / jump /
+QR / dance), and **THE CLAWDROBE** — a costume shelf.
+
+- **Hosting**: plug the block into the phone (USB-C, auto-connects) or
+  bridge Bluetooth via MIDI BLE Connect first. On reconnects, power-cycle
+  the block too (packet counters; live ACK-sync is on the roadmap).
+- **Dance mode** 🎵: he listens (phone output tap where the OS allows;
+  microphone otherwise — the mic hears phone, PC, vinyl, clapping) and
+  grooves: sways, glows with loudness, bounces on beats, arms up on the
+  hits. Headphones auto-equip. Needs the audio permission.
+- **THE CLAWDROBE** 👒: props ride his motion (top hat, gaze-anchored
+  shades, party hat, crown, headphones, scarf); character skins keep his
+  soul in a new body (spooky roommate, pink puff, chomper with the
+  animated mouth). Tap a card to dress him — portrait and glass together.
+- **Sounds**: hello on connect, jingle on jumps, boops on taps — the same
+  synth voice as the desk rig.
+
+### Legacy browser control panel
 
 - **clawdpad-app** (separate repo) is Clawd's *pocket host*: it speaks the
   ROLI protocol itself over Android MIDI. **Plug the block into the phone

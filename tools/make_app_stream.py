@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.join(ROOT, "vendor", "blocksd", "src"))
 import clawdpadd as c  # noqa: E402
 from blocksd.littlefoot.programs import bitmap_led_program  # noqa: E402
 from blocksd.protocol.builder import (  # noqa: E402
-    build_begin_api_mode, build_end_api_mode, build_ping,
-    build_request_topology,
+    build_begin_api_mode, build_config_request_user_sync,
+    build_end_api_mode, build_ping, build_request_topology,
 )
 from blocksd.protocol.constants import SERIAL_DUMP_REQUEST  # noqa: E402
 from blocksd.protocol.remote_heap import RemoteHeap  # noqa: E402
@@ -139,7 +139,10 @@ def main():
         "handshake": b64([bytes(SERIAL_DUMP_REQUEST),
                           build_request_topology(DEVICE_INDEX),
                           build_end_api_mode(DEVICE_INDEX),
-                          build_begin_api_mode(DEVICE_INDEX)]),
+                          build_begin_api_mode(DEVICE_INDEX),
+                          # config user-sync: the one packet blocksd sends
+                          # that we didn't — touch-enable suspect
+                          build_config_request_user_sync(DEVICE_INDEX)]),
         "ping": base64.b64encode(build_ping(DEVICE_INDEX)).decode(),
         "loops": {
             "full": make_loop(frames(c.frame_awake, 6.5)),
