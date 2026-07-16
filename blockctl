@@ -17,6 +17,8 @@ Commands:
   hum <on|off>                         ambient pad while thinking
   size <full|mini>                     big Clawd, or chibi-Clawd roaming
   qr [text] [-t SECONDS]               the glass becomes a Micro QR (M3=15x15)
+  costume [id]                         dress him (see 'costume list')
+  marquee [text]                       scroll a message (empty clears it)
   demo                                 tour every mood (for showing friends)
   status                               mood · block · energy · sessions
   sessions                             print the session registry
@@ -147,6 +149,19 @@ def main(argv):
         send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
     elif cmd == "size":
         send({"cmd": "size", "arg": (args[0] if args else "full").lower()})
+    elif cmd == "costume":
+        arg = (args[0] if args else "none").lower()
+        if arg == "list":
+            reply = send({"cmd": "status"})
+            print("costumes: none tophat shades party crown phones scarf bow "
+                  "halo horns wizard cowboy flower | ghost puff chomper robot "
+                  "cat frog alien pumpkin star bee")
+            return 0
+        reply = send({"cmd": "costume", "arg": arg})
+        if reply and not reply.get("ok"):
+            print(reply.get("error"), file=sys.stderr)
+    elif cmd == "marquee":
+        send({"cmd": "marquee", "arg": " ".join(args)})
     elif cmd == "qr":
         seconds = 30.0
         if "-t" in args:

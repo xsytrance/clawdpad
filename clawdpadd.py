@@ -65,6 +65,11 @@ import time
 import urllib.request
 import wave
 
+try:
+    import costumes
+except ImportError:
+    costumes = None
+
 W = H = 15
 CORAL = (217, 119, 87)     # Claude coral #D97757
 
@@ -149,6 +154,8 @@ class State:
         self.matrix_fanout = False  # config "matrix_fanout"
         self.qr_until = 0.0         # Micro QR takeover window
         self.qr_matrix = None       # 15x15 bool rows
+        self.costume = "none"       # Clawdrobe id (cmd costume)
+        self.marquee = ""           # scrolling message (cmd marquee)
 
     def prune(self, now):
         for sid in list(self.sessions):
@@ -268,6 +275,15 @@ class State:
                     self.celebrate(now)
             elif cmd == "hum":
                 self.hum_enabled = str(msg.get("arg", "on")).lower() == "on"
+            elif cmd == "costume":
+                cid = str(msg.get("arg", "none")).lower()
+                if costumes is None:
+                    return {"ok": False, "error": "costumes module missing"}
+                if cid not in {x[0] for x in costumes.COSTUMES}:
+                    return {"ok": False, "error": f"unknown costume: {cid}"}
+                self.costume = cid
+            elif cmd == "marquee":
+                self.marquee = str(msg.get("arg", ""))
             elif cmd == "size":
                 arg = str(msg.get("arg", "full")).lower()
                 if arg not in ("full", "mini"):
@@ -309,6 +325,7 @@ class State:
                 return {"ok": False, "error": f"unknown cmd: {cmd}"}
         return {"ok": True, "mood": self.mood(now), "block": dict(self.block),
                 "size": self.size,
+                "costume": self.costume,
                 "energy": round(self.energy, 3),
                 "pet": dict(self.pet) if self.pet else None,
                 "notify_text": self.notify_text if now < self.notify_until else "",
@@ -748,8 +765,63 @@ def frame_celebrate(rel):
                   arm_l_dy=-2, arm_r_dy=-2)
 
 
+
+_MARQUEE_FONT = {
+    "A": ("010","101","111","101","101"), "B": ("110","101","110","101","110"),
+    "C": ("011","100","100","100","011"), "D": ("110","101","101","101","110"),
+    "E": ("111","100","110","100","111"), "F": ("111","100","110","100","100"),
+    "G": ("011","100","101","101","011"), "H": ("101","101","111","101","101"),
+    "I": ("111","010","010","010","111"), "J": ("001","001","001","101","010"),
+    "K": ("101","110","100","110","101"), "L": ("100","100","100","100","111"),
+    "M": ("101","111","111","101","101"), "N": ("101","111","111","111","101"),
+    "O": ("010","101","101","101","010"), "P": ("110","101","110","100","100"),
+    "Q": ("010","101","101","011","001"), "R": ("110","101","110","110","101"),
+    "S": ("011","100","010","001","110"), "T": ("111","010","010","010","010"),
+    "U": ("101","101","101","101","111"), "V": ("101","101","101","101","010"),
+    "W": ("101","101","111","111","101"), "X": ("101","101","010","101","101"),
+    "Y": ("101","101","010","010","010"), "Z": ("111","001","010","100","111"),
+    "0": ("111","101","101","101","111"), "1": ("010","110","010","010","111"),
+    "2": ("111","001","111","100","111"), "3": ("111","001","011","001","111"),
+    "4": ("101","101","111","001","001"), "5": ("111","100","111","001","111"),
+    "6": ("111","100","111","101","111"), "7": ("111","001","001","010","010"),
+    "8": ("111","101","111","101","111"), "9": ("111","101","111","001","111"),
+    "!": ("010","010","010","000","010"), "?": ("111","001","011","000","010"),
+    "-": ("000","000","111","000","000"), ".": ("000","000","000","000","010"),
+    " ": ("000","000","000","000","000"), ":": ("000","010","000","010","000"),
+}
+
+
+def _marquee_frame(text, t):
+    """Scroll `text` right-to-left across the glass in Claude coral."""
+    buf = bytearray(W * H * 3)
+    glyphs = [_MARQUEE_FONT.get(ch, _MARQUEE_FONT["?"]) for ch in text.upper()]
+    width = len(glyphs) * 4
+    gx = 15 - (int(t * 11) % (width + 15))
+    for rows in glyphs:
+        for r in range(5):
+            for col in range(3):
+                if rows[r][col] == "1":
+                    _blit(buf, gx + col, 5 + r, CORAL)
+        gx += 4
+    return buf
+
+
 def build_frame(mood, t, phase, state, touch):
     now = time.time()
+    with state.lock:
+        marquee, costume = state.marquee, state.costume
+    # marquee + costumes take over the calm moods (not qr/notify/celebrate)
+    if marquee and mood in ("awake", "sleep", "thinking"):
+        return _marquee_frame(marquee, t)
+    if costume != "none" and costumes is not None and \
+            mood in ("awake", "sleep", "thinking"):
+        breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
+        dx = round(1.5 * math.sin(t * 0.13))
+        dy = round(0.5 * math.sin(t * 2 * math.pi / 6.5))
+        look = round(0.9 * math.sin(t * 0.31))
+        blink = (t % 4.3) < 0.13
+        return bytearray(costumes.dressed(costume,
+            breath * state.pet_vigor(), dx, dy, not blink, look, t))
     if mood == "qr":
         buf = bytearray(W * H * 3)
         with state.lock:

@@ -2,3 +2,6 @@
 __pycache__/
 vendor/
 *.pyc
+
+costumes.py
+__pycache__/
