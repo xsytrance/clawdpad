@@ -80,16 +80,17 @@ def make_loop(frames):
     heap.set_bytes(0, program)
     drain(heap)  # deliver the program in simulation, then discard —
                  # loop intros start from a device that already has it
-    # Two-pass frame sync: the device may hold ANY previous mood's pixels,
-    # and a plain diff-from-zeros skips zero bytes, leaving stale residue
-    # (the "QR bones under chibi" bug). Pass A paints a near-black
-    # sentinel over the whole frame area; pass B paints the real frame.
-    # Every byte either differs from the sentinel (written in B) or
-    # equals it (already correct from A) — full coverage, guaranteed.
-    heap.set_bytes(len(program), b"\x01" * (15 * 15 * 2))
-    intro = drain(heap)
+    # Single-pass full-coverage intro, no flash: mark the frame area as
+    # UNKNOWN so the diff engine emits EVERY byte (zeros included) in one
+    # pass — old pixels morph directly into new ones as the bytes stream,
+    # exactly like body frames. (History: lit-pixels-only intros left
+    # stale residue; a clear-pass sentinel fixed residue but blinked the
+    # glass dark — and 0x01 even decoded to green. This does neither.)
+    from blocksd.protocol.remote_heap import _UNKNOWN
+    for i in range(len(program), HEAP_SIZE):
+        heap._device_state[i] = _UNKNOWN
     heap.set_bytes(len(program), rgb565(frames[0]))
-    intro += drain(heap)
+    intro = drain(heap)
     body = []
     for f in frames[1:] + [frames[0]]:
         heap.set_bytes(len(program), rgb565(f))
