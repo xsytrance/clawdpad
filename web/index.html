@@ -65,6 +65,12 @@
 <div class="label">HIS MOODS</div>
 <div class="grid" id="moods"></div>
 
+<div class="label">PUT WORDS ON HIM</div>
+<div style="display:flex;gap:8px;margin-bottom:6px">
+  <input id="msg" placeholder="type a message…" style="flex:1">
+  <button class="cta" style="width:auto;padding:12px 18px;margin:0" id="msgBtn">📣</button>
+</div>
+
 <div class="label">THE CLAWDROBE</div>
 <div id="robe"></div>
 
@@ -232,6 +238,11 @@ async function toggleDance() {
   } catch (e) { say("mic refused: " + e.message, "#c25548"); }
 }
 
+$("msgBtn").onclick = () => {
+  Clawd.msg = $("msg").value.trim();
+  if (mode === "sleep") mode = "awake";
+  say(Clawd.msg ? "scrolling: " + Clawd.msg : "cleared the marquee");
+};
 $("hostBtn").onclick = hostBlock;
 $("remoteBtn").onclick = () => {
   remoteOn = !remoteOn;
