@@ -152,3 +152,27 @@ a Pixel 10 Pro XL over USB-C, no computer. BLE retest pending.
 Next for v0.4+: parse topology + ACKs live (drop hardcoded index 9),
 Kotlin Clawd renderer instead of baked loops (touch reactions!),
 foreground service, BLE wireless verification.
+
+### The QR-blank saga (2026-07-16) — firmware wipes frame data on program reload
+
+The app's QR blanked while every animated mood worked. Emulator said the
+bytes were perfect; the wire said every packet was ACKed. The clue: giving
+the QR a blinking corner "heartbeat" pixel — the DOT rendered on an
+otherwise blank glass. Body diffs painted; the intro's pixels vanished.
+
+**Root cause:** every loop intro re-uploaded the LittleFoot program, and
+the firmware, on (re)validating a program, WIPES its heap data area — the
+wipe lands after the intro's pixel bytes, erasing them. Animated moods
+repaint 8×/s so nobody ever saw it; the static QR kept only its heartbeat.
+This also explains why blocksd never hits it: it uploads the program once
+per connection, never on mode changes.
+
+**Rule (now in the generator + Streamer):** the program is uploaded ONCE
+after handshake ("boot" packets); loop intros sync the frame area only.
+Debugging pattern worth keeping: a deliberately-blinking pixel is a
+render-path witness — if the heartbeat shows and your content doesn't,
+your content was erased after delivery, not dropped in transit.
+
+Scanning reality: through the silicone weave, inverted, Micro-format, the
+on-glass QR defeats stock camera apps; the companion app's zxing-cpp
+scanner is the intended reader (pairing flow). Human-visible = success.

@@ -59,16 +59,27 @@ def b64(pkts):
     return [base64.b64encode(p).decode() for p in pkts]
 
 
+def make_boot():
+    """Program upload — sent ONCE after handshake. Never again: rewriting
+    the program area makes the firmware reload it and WIPE the frame data
+    (discovered via the QR heartbeat-pixel experiment: intros that carried
+    the program erased their own pixels)."""
+    heap = RemoteHeap(HEAP_SIZE)
+    heap.handle_ack(0)
+    heap.set_bytes(0, bitmap_led_program())
+    return b64(drain(heap))
+
+
 def make_loop(frames):
-    """Standalone loop: intro fully syncs program+frame0; body cycles
-    f1..fn plus the wrap diff back to f0."""
+    """Loop intro syncs the FRAME AREA ONLY; body cycles f1..fn plus the
+    wrap diff back to f0. The program region is never touched (see
+    make_boot)."""
     program = bitmap_led_program()
     heap = RemoteHeap(HEAP_SIZE)
-    # The device ACKs once (counter 0) right after topology, so the first
-    # data packet it will accept is index 1 — seed the heap accordingly.
-    # (Found by byte-diffing against a captured working blocksd session.)
     heap.handle_ack(0)
     heap.set_bytes(0, program)
+    drain(heap)  # deliver the program in simulation, then discard —
+                 # loop intros start from a device that already has it
     heap.set_bytes(len(program), rgb565(frames[0]))
     intro = drain(heap)
     body = []
@@ -90,7 +101,7 @@ class _QRState:  # minimal stand-in so we can reuse the daemon's QR command
         self.qr_until = 0.0
 
 
-def qr_frame(text):
+def qr_frame(text, heartbeat=False):
     st = _QRState()
     reply = c.State.apply.__wrapped__ if hasattr(c.State.apply, "__wrapped__") \
         else None
@@ -104,7 +115,9 @@ def qr_frame(text):
         for x, v in enumerate(row):
             if v:
                 i = ((y + pad) * 15 + (x + pad)) * 3
-                buf[i] = buf[i + 1] = buf[i + 2] = 140  # dim: 225 near-white px trips the battery current limiter
+                buf[i] = buf[i + 1] = buf[i + 2] = 140
+    if heartbeat:  # bottom-right corner blink, outside the quiet zone story
+        buf[(14 * 15 + 14) * 3] = 60
     return bytes(buf)
 
 
@@ -113,6 +126,7 @@ def main():
         "~/clawdpad-app/app/src/main/assets/stream.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     doc = {
+        "boot": make_boot(),
         "handshake": b64([bytes(SERIAL_DUMP_REQUEST),
                           build_request_topology(DEVICE_INDEX),
                           build_end_api_mode(DEVICE_INDEX),
@@ -131,7 +145,12 @@ def main():
             "mini_jump": make_loop(
                 [c._mini_frame("celebrate", i / FPS, 0, None, 1.0)
                  for i in range(int(2.4 * FPS))]),
-            "qr": make_loop([qr_frame("CLAWDPAD")] * 2),
+            # QR body must keep DATA flowing: an all-static loop sends
+            # nothing after the intro, and the block blanks on an idle
+            # data stream (the working daemon path always has periodic
+            # protocol chatter). One blinking corner pixel = a heartbeat.
+            "qr": make_loop([qr_frame("CLAWDPAD"),
+                             qr_frame("CLAWDPAD", heartbeat=True)]),
         },
     }
     with open(out, "w") as fh:
