@@ -408,11 +408,12 @@ const Clawd = {
         P(x + dx, y + dy, 52, 46, 58);
       for (let x = 5; x <= 9; x++) P(x + dx, 1 + dy, 180, 60, 70);
     } else if (id === "shades") {
-      const yy = 5 + dy;
-      for (let x = 3; x <= 5; x++) P(x + dx + look, yy, 18, 16, 20);
-      for (let x = 9; x <= 11; x++) P(x + dx + look, yy, 18, 16, 20);
-      for (let x = 6; x <= 8; x++) P(x + dx + look, yy, 30, 26, 32);
-      P(4 + dx + look, yy, 90, 90, 110); P(10 + dx + look, yy, 90, 90, 110);
+      for (const yy of [5 + dy, 6 + dy]) {          // full eye coverage
+        for (let x = 3; x <= 5; x++) P(x + dx + look, yy, 18, 16, 20);
+        for (let x = 9; x <= 11; x++) P(x + dx + look, yy, 18, 16, 20);
+      }
+      for (let x = 6; x <= 8; x++) P(x + dx + look, 5 + dy, 30, 26, 32);
+      P(4 + dx + look, 5 + dy, 90, 90, 110); P(10 + dx + look, 5 + dy, 90, 90, 110);
     } else if (id === "party") {
       P(7 + dx, 0 + dy, 255, 210, 60);
       for (let x = 6; x <= 8; x++) P(x + dx, 1 + dy, 235, 90, 160);
