@@ -35,6 +35,7 @@ Command protocol: one JSON object per line, one JSON reply per line.
   {"cmd": "hum", "arg": "on|off"}                     # ambient pad while thinking
   {"cmd": "visit"}                                    # hop to the other block
   {"cmd": "game", "arg": "pong|off"}                  # pong across the glasses
+  {"cmd": "names"}                                    # glasses wear name tags
   {"cmd": "clear"}                                    # drop notify + manual mode
   {"cmd": "status"}
 
@@ -92,6 +93,8 @@ WANDER_EVERY = (150, 420)  # awake Clawd drifts to another block (min, max s)
 HOME_SERIAL = "LPM9E1KL3HO9XC5G"  # Clawd's home glass (config "home_serial")
 PONG_SPEED = 11.0          # ball px/s at serve; hits speed it up a touch
 PONG_PADDLE = 4            # paddle height in px (2px wide — chunky rules)
+ROLL_CALL_SECONDS = 4.0    # each glass scrolls its own name (config
+                           # "block_names": {serial: name}; default = last 4)
 
 # Clawd's geometry, scaled from the official Claude Code icon SVG
 # (viewBox 24x24; same rect decomposition dazzler's make_clawd.py uses):
@@ -159,6 +162,10 @@ class State:
         self.next_wander = 0.0      # monotonic deadline for a self-directed hop
         self.home_serial = HOME_SERIAL
         self.game = None            # pong state dict (cmd game), or None
+        self.block_names = {}       # serial -> display name (config)
+        self.roll_call_until = 0.0  # monotonic: glasses wear name tags
+        self.away_flair = False     # render thread only: he's not home,
+                                    # so he wears his traveling scarf
         self.started = time.time()
         self.player = None          # set in main()
         self.hum_enabled = False
@@ -329,6 +336,10 @@ class State:
                         grid[y + pad][x + pad] = bool(v)
                 self.qr_matrix = grid
                 self.qr_until = now + float(msg.get("seconds", 30))
+            elif cmd == "names":
+                if not self.devices:
+                    return {"ok": False, "error": "no block connected"}
+                self.roll_call_until = time.monotonic() + ROLL_CALL_SECONDS
             elif cmd == "game":
                 arg = str(msg.get("arg", "pong")).lower()
                 if arg in ("off", "stop"):
@@ -360,8 +371,12 @@ class State:
                 pass
             else:
                 return {"ok": False, "error": f"unknown cmd: {cmd}"}
+        home_serial = self.dev_serials.get(self.home, "")
         return {"ok": True, "mood": self.mood(now), "block": dict(self.block),
-                "home": self.dev_serials.get(self.home, ""),
+                "home": self.block_names.get(home_serial)
+                or home_serial[-4:],
+                "names": {s: self.block_names.get(s) or s[-4:]
+                          for s in self.dev_serials.values()},
                 "size": self.size,
                 "costume": self.costume,
                 "energy": round(self.energy, 3),
@@ -457,6 +472,12 @@ class State:
                     self.home = to
                 return None
             return frm, to, p
+
+    def name_of(self, uid):
+        """A block's display name: configured, or the serial's last 4."""
+        with self.lock:
+            serial = self.dev_serials.get(uid, "")
+            return self.block_names.get(serial) or serial[-4:] or "?"
 
     def maybe_wander(self, mono):
         """Awake Clawd drifts to another glass now and then, like a cat."""
@@ -1039,6 +1060,8 @@ def build_frame(mood, t, phase, state, touch):
     now = time.time()
     with state.lock:
         marquee, costume = state.marquee, state.costume
+    if costume == "none" and state.away_flair and costumes is not None:
+        costume = "scarf"   # he's out visiting; he dresses for the trip
     # marquee + costumes take over the calm moods (not qr/notify/celebrate)
     if marquee and mood in ("awake", "sleep", "thinking"):
         return _marquee_frame(marquee, t)
@@ -1090,11 +1113,19 @@ def build_frames(mood, t, phase, state, touch, mono):
     with state.lock:
         devices = list(state.devices)
         marquee = state.marquee
+        roll_call = state.roll_call_until
+        serials = dict(state.dev_serials)
+        home_serial_cfg = state.home_serial
     game = state.game_snapshot()
     if game and devices:
         return {u: frame_pong(game, i, mono)
                 for i, u in enumerate(devices)}
+    if devices and mono < roll_call:
+        # name tags: each glass scrolls its own name
+        return {u: _marquee_frame(state.name_of(u), t) for u in devices}
     if len(devices) <= 1:
+        state.away_flair = bool(
+            devices and serials.get(devices[0], "") != home_serial_cfg)
         return {u: build_frame(mood, t, phase, state, touch)
                 for u in devices}
     if marquee and mood in ("awake", "sleep", "thinking"):
@@ -1115,6 +1146,7 @@ def build_frames(mood, t, phase, state, touch, mono):
         home = state.home
     frames = {u: frame_empty(t) for u in devices}
     if home in frames:
+        state.away_flair = serials.get(home, "") != home_serial_cfg
         frames[home] = build_frame(mood, t, phase, state, touch)
     return frames
 
@@ -1205,7 +1237,12 @@ def render_loop(state):
                         devs[0]["uid"])
                     state.visit = None
                     state.next_wander = 0.0
-                log("streaming to " + ", ".join(d["serial"] for d in devs)
+                    if len(devs) > 1:   # friends announce themselves
+                        state.roll_call_until = (time.monotonic()
+                                                 + ROLL_CALL_SECONDS)
+                log("streaming to "
+                    + ", ".join(f"{state.name_of(d['uid'])}"
+                                f" ({d['serial']})" for d in devs)
                     + f" (battery {master.get('battery_level')}%)")
                 headers = {d["uid"]: struct.pack("<BBQ", 0xBD, 0x01,
                                                  d["uid"])
@@ -1519,6 +1556,10 @@ def main():
         state.size = cfg["size"]
     state.matrix_fanout = bool(cfg.get("matrix_fanout", False))
     state.home_serial = str(cfg.get("home_serial", HOME_SERIAL))
+    names = cfg.get("block_names", {})
+    if isinstance(names, dict):
+        state.block_names = {str(k): str(v).upper() for k, v in
+                             names.items()}  # marquee font is uppercase
     # pre-render all sounds off the hot path so play() never blocks the lock
     threading.Thread(
         target=lambda: [state.player._wav(n)
