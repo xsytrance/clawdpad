@@ -48,12 +48,20 @@ L3.
 
 ### Hosts and controllers — an existing collision
 
-`docs/APP.md` (`clawdpad-app`, Expo) and `docs/WEAR.md` (`clawdpad-wear`,
-Kotlin) both already describe apps. **They are not this.** Their iron rule is
-"the app talks to the daemon, never the block" — they are *controllers*, and
-they require an L1 daemon somewhere.
+`docs/APP.md` and `docs/WEAR.md` both already describe apps whose iron rule is
+"the app talks to the daemon, never the block" — *controllers*, requiring an L1
+daemon somewhere. Rod's L2 is the opposite: the app **is** the host.
 
-Rod's L2 is the opposite: the app **is** the host, no daemon at all.
+**Except the real `clawdpad-app` is already a host** (checked 2026-07-17 —
+the first draft of this doc got this wrong by trusting APP.md). It's native
+Kotlin, not the Expo controller its own design doc specifies, and its README
+opens with "hosts the critter with no computer involved." It has a live
+renderer, topology/ACK sync, a foreground service, and a wardrobe.
+
+**So L2 is not greenfield on Android — a large piece of it shipped two days
+ago.** The doc simply never found out. That reframes L2 from "build the app"
+to "finish and package the app that exists, and decide what happens to the
+controller half nobody built."
 
 So the family sorts into two kinds, and every future doc should say which:
 
@@ -164,6 +172,32 @@ blood to establish, and turns `parity.py` from a 2-body problem into an N-body
 one. Swift should write a CoreMIDI transport and hand bytes to `clawd-core.js`.
 Then parity stays green for free, forever, and it stays a 2-body problem no
 matter how many platforms ship.
+
+### The third body already exists — known, accepted, unwatched
+
+**This rule is a proposal, not the status quo, and honesty demands the
+asterisk:** `clawdpad-app` already contains `ClawdRenderer.kt` and
+`Costumes.kt` — a full Kotlin port of Clawd's art. It is the exact N-body
+problem above, shipped before the rule was written. Two specifics:
+
+- **It was ported from `clawdpadd.py`**, the mirror, not from clad-core.js, the
+  source. Wrong direction, and it predates the one-arrow rule that would have
+  said so.
+- **`tools/parity.py` cannot see it.** The desk and the browser are held
+  byte-identical; the phone is held by nothing. Nothing stops it drifting, and
+  by the logic of POSES.md it quietly already has.
+
+The protocol half *is* covered — `GoldenTest.kt` / `DecoderTest.kt` check the
+Kotlin ROLI stack against captured traffic, which is the harder half and a
+genuinely good sign about how that app was built.
+
+**Decision 2026-07-17 (Rod): document it, don't fix it yet.** Demo day is
+close and the Android renderer works. The options when it's time, cheapest
+first: teach `parity.py` to shell out to a JVM and diff the Kotlin poses;
+or generate `ClawdRenderer.kt` from `clawd-core.js` and delete the hand port;
+or accept the fork forever and say so out loud in both files. What isn't an
+option is leaving it undocumented — that's precisely the failure POSES.md
+exists to end.
 
 ### The webview trap — check this before choosing a shell
 

@@ -13,6 +13,17 @@ Clawd exists in two implementations, deliberately:
 They are kept honest by **`tools/parity.py`**, which renders the shared surface
 on both and compares bytes. Not "looks right" — identical bytes.
 
+> **⚠ There is a third body, and this harness cannot see it.** Noted
+> 2026-07-17. `clawdpad-app` (the Android host) carries `ClawdRenderer.kt` +
+> `Costumes.kt` — a hand port of Clawd's art into Kotlin, made from
+> `clawdpadd.py` (the mirror) rather than `clawd-core.js` (the source), and
+> written before the one-arrow rule existed to forbid it. `parity.py` diffs the
+> desk against the browser; **nothing at all watches the phone.** Its protocol
+> layer *is* golden-tested (`GoldenTest.kt`, `DecoderTest.kt`) — it's the art
+> that's unguarded. Rod's call, same day: document now, fix after demo day.
+> Options and reasoning in [LEVELS.md](LEVELS.md) → "The third body already
+> exists". Everything below describes the two bodies this harness covers.
+
 ```bash
 .venv/bin/python3 tools/parity.py       # 28/28 poses identical
 tools/check.sh                          # parity + golden vectors + the rest

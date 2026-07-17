@@ -12,12 +12,30 @@ stays a clean, reviewable Python project a stranger can audit in one
 sitting. The contract between them is the daemon's HTTP API — version that,
 not a monorepo.
 
-**Recommended stack: Expo (React Native).** One codebase for Android + iOS,
-fastest path to a working APK for a Pixel, OTA updates while iterating,
-and a dev-client escape hatch for native modules (BLE, if the app ever
-becomes a block host itself — see ROADMAP BLE-3).
+> ## ⚠ This document was overtaken by reality — read this first
+>
+> *2026-07-17.* Two of this doc's load-bearing decisions were never followed,
+> and `xsytrance/clawdpad-app` has been shipping the opposite for two days:
+>
+> | this doc says | the repo actually is |
+> |---|---|
+> | **Expo / React Native**, one codebase for Android + iOS | **native Kotlin** (`dev.clawdpad.host`), Android only, AGP 8.5.2 / JDK 17 |
+> | a **controller** — "talks to the daemon, never the block" | a **host** — it drives the block over Android MIDI with no computer at all |
+>
+> Neither reversal is wrong; both are undocumented, which is how a doc starts
+> lying. The host/controller flip is the bigger one: per LEVELS.md the app is
+> **L2**, and a chunk of L2 therefore already exists on Android.
+>
+> Everything below still describes a *worthwhile* app — the stats/feed/talk/
+> friends screens, the soul, the QR pairing. Read it as **the controller half,
+> unbuilt**, not as a description of the repo. Someone should decide whether
+> clawdpad-app grows those screens (host *and* controller in one app) or they
+> land in a separate companion, and then rewrite this header away.
 
 ## How it connects
+
+*(As designed — for the controller half. The shipped app is a host and talks
+to the block directly; see the header above.)*
 
 The app talks to **clawdpadd**, never the block:
 
@@ -128,36 +146,62 @@ and it must **say what it found** — "You're up to date" is a feature, not a
 non-event. Never update silently: this app talks to a creature, and a creature
 that changes behaviour without telling you is a bug report.
 
-**There are two kinds of update and the button must know the difference.** This
-is the trap:
+> **Corrected 2026-07-17:** the first draft of this section was written against
+> `expo-updates` — OTA JavaScript bundles, "check → fetch → reload". **None of
+> that exists.** The app is native Kotlin (see the header), so there is no JS
+> to hot-swap and no OTA channel: *every* update is a whole APK. That deletes a
+> tier of complexity and one real footgun (OTA onto a mismatched runtime), and
+> it makes the button simpler than first designed. Good news, arrived late.
 
-| kind | mechanism | user sees |
-|---|---|---|
-| **JS-only** (screens, poses, battle rules) | `expo-updates` OTA — `checkForUpdateAsync()` → `fetchUpdateAsync()` → `reloadAsync()` | "Update ready — restart", ~seconds |
-| **Native** (new BLE/MIDI module, new SDK) | a whole new APK; OTA **cannot** ship it | "New version — download APK" |
+**Every update is an APK.** No OTA, no partial updates, no "restart to apply" —
+download, install, done. The button's whole job:
 
-Set `checkAutomatically: NEVER` so the button drives it rather than a surprise
-at launch, and gate OTA on `runtimeVersion` — an OTA bundle pushed onto a
-mismatched native binary is how you brick a demo the morning of.
+1. `GET` the manifest (below). One request, and it must time out gracefully —
+   a creature app that hangs on a settings screen because Wi-Fi is captive is
+   a bad creature app.
+2. Compare `versionCode` against `BuildConfig.VERSION_CODE`. Not the name —
+   names are for humans, `versionCode` is what Android actually orders by.
+3. Same or older → **"You're up to date"**, and say the version. That's the
+   feature; a button that does nothing visible reads as broken.
+4. Newer → show `notes`, download, **verify `sha256`**, then hand it to
+   `PackageInstaller`.
 
 **Sideloading is the awkward part, and it's Android's rule, not ours.** We're
-not on Play (yet), so a native update means downloading an APK and installing
-it: `REQUEST_INSTALL_PACKAGES` + a `PackageInstaller` flow, and the OS will
-show its own scary "install unknown apps" screen. Options, in order of my
-preference:
+not on Play (yet), so installing means `REQUEST_INSTALL_PACKAGES` + a
+`PackageInstaller` session, and the OS shows its own scary "install unknown
+apps" screen the first time. Nothing we can do about that except not be
+sketchy: verify the hash before the install intent, and never auto-install.
 
-1. **Play Store internal testing track** — free, boring, real update UX, and
-   Charles can be a tester with an email address. If this app has any future
-   beyond Rod's Pixel, this is the answer.
-2. **Self-hosted from the daemon** — `GET /app/latest` returns
-   `{version, url, sha256, notes, min_daemon_api}`, served over the tailnet.
-   No Expo account, no store, and it fits LEVELS.md rule 4 (local-first): your
-   creature's updates come from your own machine. Delightful, and about a day.
-3. **A GitHub release URL** — simplest, works today, leaks nothing but the tag.
+**The signing trap, which is worse than it looks:** the APK CI publishes today
+is *debug-signed*. Android refuses to upgrade an installed app in place if the
+signing key changes, so the day this ships a release-signed build, every
+sideloaded tester must uninstall first — losing local state — and the updater
+button will simply fail with a signature mismatch. Either keep one key forever
+or plan that break deliberately, with a release note that says "uninstall
+first". Decide before there are testers, not after.
+
+Where the manifest comes from:
+
+1. **GitHub Releases — ✅ shipped 2026-07-17, so build against this.** A `v*`
+   tag runs `.github/workflows/build.yml` in clawdpad-app, which tests, builds,
+   and attaches the APK with its sha256. `GET /repos/xsytrance/clawdpad-app/
+   releases/latest` is a public, unauthenticated JSON endpoint that already
+   carries `tag_name`, the notes, and the asset URL — **the manifest exists
+   whether we write one or not.** The button can ship against it today.
+2. **Self-hosted from the daemon** — `GET /app/latest` returns the manifest
+   below over the tailnet. No store, no GitHub, and it fits LEVELS.md rule 4
+   (local-first): your creature's updates come from your own machine. Worth it
+   the day the app is *also* a controller and the daemon is already in the
+   conversation. About a day.
+3. **Play Store internal testing track** — free, real update UX, no scary
+   unknown-sources screen, and Charles can be a tester with an email address.
+   The answer if this app ever has a life beyond Rod's Pixel; overkill before.
 
 **Check compatibility, not just version.** The contract between app and daemon
 is the HTTP API (see "Separate repo" above), so the updater must answer *"will
 this app still talk to my daemon?"* — hence `min_daemon_api` in the manifest.
+Note this only bites once the app talks to a daemon at all: today it's a pure
+host and has no daemon to mismatch, which is a reprieve, not an exemption.
 An app that updates itself into being unable to reach Clawd is worse than an
 app that never updates. If they'd mismatch, say so **before** downloading, and
 say which side needs the upgrade.
@@ -171,9 +215,10 @@ your phone's in your pocket.
 
 ## Distribution — where the APK lives (and where it doesn't)
 
-*Written 2026-07-17, when Rod asked to put the APK in the repo. There wasn't
-one yet — no app source exists on any machine — so this is the decision made
-in advance, while it's cheap.*
+*Written 2026-07-17, when Rod asked to put the APK in the repo. There was no
+APK — `xsytrance/clawdpad-app` had two days of Kotlin and zero releases — so
+this recorded the decision in advance. **Shipped the same day**: CI now builds
+it and a `v*` tag publishes it.*
 
 **The APK never goes in git.** Not this repo, not `clawdpad-app`. Git keeps
 every binary forever: a 50 MB APK committed once is 50 MB in every clone of a
@@ -187,8 +232,17 @@ exactly this, doesn't touch the tree, and gives the updater a stable URL to
 fetch. `.gitignore` should carry `*.apk` / `*.aab` from the app repo's first
 commit, before anyone can do it by accident.
 
-The updater's manifest — served from a release asset, or from the daemon at
-`GET /app/latest` (see Updates above):
+**How it works now** (`clawdpad-app/.github/workflows/build.yml`, 2026-07-17):
+every push builds and runs the Kotlin golden tests, leaving the APK on the run
+page; a `v*` tag additionally publishes it to a Release with its sha256 in the
+notes. Tests gate the build — an APK that speaks the protocol wrong is worse
+than no APK. Two known rough edges, both deliberate: the build is
+**debug-signed** (see the signing trap above), and the repo has **no Gradle
+wrapper**, so CI pins Gradle 8.7 by hand — AGP 8.5.2 needs ≥ 8.7. Adding a real
+wrapper is the better fix and wants a machine with Gradle on it.
+
+The updater's manifest — GitHub's own `releases/latest` JSON already covers
+most of this; write one only if the daemon starts serving `GET /app/latest`:
 
 ```json
 {
