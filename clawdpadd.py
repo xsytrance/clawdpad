@@ -946,6 +946,29 @@ def _clawd(brightness, dx=0, dy=0, eyes="open", look=0,
     return buf
 
 
+def _skin(costume, brightness, dx=0, dy=0, eyes="open", look=0, t=0.0,
+          arm_l_dy=0, arm_r_dy=0):
+    """Render Clawd wearing `costume` — or bare, if he isn't wearing one.
+
+    The single place a pose becomes pixels, mirroring clawd-core.js's
+    `Clawd.dressed()`: **the pose decides the body language, this decides
+    what he's wearing, and neither knows about the other.**
+
+    Until 2026-07-17 there was no such seam on the desk. `build_frame`
+    re-derived *awake* breath/bob/blink for every calm mood and returned
+    early, so a costumed Clawd never slept (he breathed at 0.72 at 3am) and
+    never paced while thinking — while the browser, whose poses call
+    `dressed()` from the inside, did it right. Nothing caught it: parity
+    renders poses, and this bug lived in the gate above them.
+    """
+    if costume and costume != "none" and costumes is not None:
+        return bytearray(costumes.dressed(costume, brightness, dx, dy,
+                                          eyes == "open", look, t,
+                                          arm_l_dy=arm_l_dy,
+                                          arm_r_dy=arm_r_dy))
+    return _clawd(brightness, dx, dy, eyes, look, arm_l_dy, arm_r_dy)
+
+
 def _mini(brightness, px, py, eyes="open", look=0, arms="down"):
     """Render chibi-Clawd with his body's top-left at (px, py).
 
@@ -1026,7 +1049,8 @@ def _touch_pose(touch):
     return dx, dy, look, tz
 
 
-def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0):
+def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0,
+                costume=None):
     """Clawd awake: breathes, bobs, paces a little, blinks, glances around.
 
     Petting leans him toward your finger with pressure glow and tracking
@@ -1050,11 +1074,11 @@ def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0):
         brightness *= 0.88 + 0.12 * math.sin(t * 13.7)
     # a tired Clawd blinks slow and long — the eyes are where fatigue reads
     blink = (t % 4.3) < (0.13 + 0.30 * tired)
-    return _clawd(brightness, dx + xoff, dy,
-                  "closed" if blink else "open", look)
+    return _skin(costume, brightness, dx + xoff, dy,
+                 "closed" if blink else "open", look, t)
 
 
-def frame_thinking(phase, t, touch=None, notice=None, xoff=0):
+def frame_thinking(phase, t, touch=None, notice=None, xoff=0, costume=None):
     """Clawd hard at work: pacing back and forth, eyes leading the way.
 
     `phase` accumulates at 2.5+4.5*energy rad/s in the render loop, so he
@@ -1072,11 +1096,11 @@ def frame_thinking(phase, t, touch=None, notice=None, xoff=0):
             (1 if vel > 0.25 else (-1 if vel < -0.25 else 0))
         brightness = 0.9
     blink = (t % 2.1) < 0.09
-    return _clawd(brightness, dx + xoff, dy,
-                  "closed" if blink else "open", look)
+    return _skin(costume, brightness, dx + xoff, dy,
+                 "closed" if blink else "open", look, t)
 
 
-def frame_sleep(t, touch=None):
+def frame_sleep(t, touch=None, costume=None):
     """Clawd asleep: dim, slow breathing, eyes closed, occasional peek.
 
     Petting warms him and half-wakes the eyes, like disturbing anyone
@@ -1087,20 +1111,26 @@ def frame_sleep(t, touch=None):
     if touch is not None:
         breath = min(0.7, breath + 0.45 * touch[2])
         peek = True
-    return _clawd(breath, 0, round(0.5 * math.sin(t * 2 * math.pi / 9.0)),
-                  "open" if peek else "closed", 0)
+    return _skin(costume, breath, 0,
+                 round(0.5 * math.sin(t * 2 * math.pi / 9.0)),
+                 "open" if peek else "closed", 0, t)
 
 
-def frame_notify(t, vigor=1.0):
-    """Clawd needs you: right arm raised, waving, gentle pulse. Tap to ack."""
+def frame_notify(t, vigor=1.0, costume=None):
+    """Clawd needs you: right arm raised, waving, gentle pulse. Tap to ack.
+
+    He keeps his outfit on while waving — costumes.dressed() grew arm
+    offsets on 2026-07-17 exactly so he wouldn't have to undress to ask
+    for you.
+    """
     pulse = (0.78 + 0.22 * math.sin(t * 2 * math.pi * 1.4)) * max(0.7, vigor)
     wave_up = (t * 2.4) % 1.0 < 0.5
     blink = (t % 4.3) < 0.13
-    return _clawd(pulse, 0, 0, "closed" if blink else "open", 0,
-                  arm_r_dy=-2 if wave_up else -1)
+    return _skin(costume, pulse, 0, 0, "closed" if blink else "open", 0, t,
+                 arm_r_dy=-2 if wave_up else -1)
 
 
-def frame_sad(t, touch=None):
+def frame_sad(t, touch=None, costume=None):
     """The one emotion he was missing: slumped, arms drooped, heavy blinks.
 
     Deliberately quiet — no flash, no colour change. This replaced the old
@@ -1122,15 +1152,15 @@ def frame_sad(t, touch=None):
         _, _, tz = touch
         breath = min(0.85, breath + 0.3 * tz)
         look = 0                      # he looks up at you
-    return _clawd(breath, 0, 1, "closed" if blink else "open", look,
-                  arm_l_dy=2, arm_r_dy=2)
+    return _skin(costume, breath, 0, 1, "closed" if blink else "open", look, t,
+                 arm_l_dy=2, arm_r_dy=2)
 
 
-def frame_celebrate(rel):
+def frame_celebrate(rel, costume=None):
     """Task landed: both arms up, jumping. (dazzler's celebrate, in 15x15.)"""
     bounce = abs(math.sin(rel * math.pi / 0.6))  # two full hops per burst
-    return _clawd(1.0, 0, -round(2 * bounce), "open", 0,
-                  arm_l_dy=-2, arm_r_dy=-2)
+    return _skin(costume, 1.0, 0, -round(2 * bounce), "open", 0, rel,
+                 arm_l_dy=-2, arm_r_dy=-2)
 
 
 def frame_empty(t):
@@ -1272,32 +1302,13 @@ def build_frame(mood, t, phase, state, touch):
     # him wave, not a message. (qr/notify/celebrate are never hidden.)
     if marquee and mood in ("awake", "sleep", "thinking"):
         return _marquee_frame(marquee, t)
-    if costume != "none" and costumes is not None and \
-            mood in ("awake", "sleep", "thinking"):
-        breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
-        dx = round(1.5 * math.sin(t * 0.13))
-        dy = round(0.5 * math.sin(t * 2 * math.pi / 6.5))
-        look = round(0.9 * math.sin(t * 0.31))
-        blink = (t % 4.3) < 0.13
-        return bytearray(costumes.dressed(costume,
-            breath * state.pet_vigor(), dx, dy, not blink, look, t))
-    # He keeps his outfit on while waving and jumping. Until 2026-07-17
-    # costumes.dressed() had no arm offsets, so these two moods had to strip
-    # him — a costumed Clawd could wave in the browser but not on the desk.
-    if costume != "none" and costumes is not None and mood == "notify":
-        pulse = (0.78 + 0.22 * math.sin(t * 2 * math.pi * 1.4)) \
-            * max(0.7, state.pet_vigor())
-        wave_up = (t * 2.4) % 1.0 < 0.5
-        blink = (t % 4.3) < 0.13
-        return bytearray(costumes.dressed(
-            costume, pulse, 0, 0, not blink, 0, t,
-            arm_r_dy=-2 if wave_up else -1))
-    if costume != "none" and costumes is not None and mood == "celebrate":
-        rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
-        bounce = abs(math.sin((rel % CELEBRATE_SECONDS) * math.pi / 0.6))
-        return bytearray(costumes.dressed(
-            costume, 1.0, 0, -round(2 * bounce), True, 0, t,
-            arm_l_dy=-2, arm_r_dy=-2))
+    # The costume is no longer a mood of its own: every pose below takes it and
+    # renders it through _skin(), so a dressed Clawd sleeps, paces, waves, jumps
+    # and mopes exactly like a bare one. Three near-duplicate branches used to
+    # live here, all re-deriving *awake* breath/bob/blink — which is why a
+    # costumed Clawd never slept on the desk and never paced while thinking,
+    # while the browser (whose poses dress themselves from inside) did it right.
+    # Poses own body language; this function only decides what he's wearing.
     if mood == "qr":
         buf = bytearray(W * H * 3)
         with state.lock:
@@ -1313,19 +1324,21 @@ def build_frame(mood, t, phase, state, touch):
         return _mini_frame(mood, t, phase, touch, state.pet_vigor())
     notice = state.notice_look(now)
     if mood == "thinking":
-        return frame_thinking(phase, t, touch, notice)
+        return frame_thinking(phase, t, touch, notice, costume=costume)
     if mood == "sleep":
-        return frame_sleep(t, touch)
+        return frame_sleep(t, touch, costume=costume)
     if mood == "sad":
-        return frame_sad(t, touch)
+        return frame_sad(t, touch, costume=costume)
     if mood == "notify":
-        return frame_notify(t, state.pet_vigor() * state.battery_vigor(t))
+        return frame_notify(t, state.pet_vigor() * state.battery_vigor(t),
+                            costume=costume)
     if mood == "celebrate":
         with state.lock:
             rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
-        return frame_celebrate(max(0.0, rel))   # he always jumps at full tilt
+        # he always jumps at full tilt
+        return frame_celebrate(max(0.0, rel), costume=costume)
     return frame_awake(t, touch, state.pet_vigor() * state.battery_vigor(t),
-                       notice, tired=state.battery_tired())
+                       notice, tired=state.battery_tired(), costume=costume)
 
 
 def build_frames(mood, t, phase, state, touch, mono):

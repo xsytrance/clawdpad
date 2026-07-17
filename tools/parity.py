@@ -80,6 +80,34 @@ CASES = [
                            "Clawd.marquee('HI', 1.0, Clawd.CORAL)"),
 ]
 
+# (name, costume, python expr, js expr) — a costume *inside a pose*, which is
+# the gap the next bug lived in. CASES checks poses undressed; COSTUME_CASES
+# checks costumes at fixed arguments; neither could see that build_frame
+# re-derived *awake* breath/bob/blink for every costumed calm mood, so a
+# dressed Clawd on the desk never slept and never paced while thinking. The
+# browser was right the whole time, and 32/32 stayed green through all of it.
+# A pose is (body language x outfit) — test the product, not the factors.
+DRESSED_CASES = [
+    ("tophat sleep t=1.0",  "tophat", "m.frame_sleep(1.0, costume='tophat')",
+                                      "Clawd.sleep(1.0)"),
+    ("tophat sleep t=9.8",  "tophat", "m.frame_sleep(9.8, costume='tophat')",
+                                      "Clawd.sleep(9.8)"),
+    ("tophat awake t=2.7",  "tophat", "m.frame_awake(2.7, costume='tophat')",
+                                      "Clawd.awake(2.7)"),
+    ("scarf thinking ph=2", "scarf",  "m.frame_thinking(2.0, 0.3, costume='scarf')",
+                                      "Clawd.thinking(2.0, 0.3)"),
+    ("scarf thinking ph=5.5", "scarf", "m.frame_thinking(5.5, 2.7, costume='scarf')",
+                                       "Clawd.thinking(5.5, 2.7)"),
+    ("tophat wave t=0.3",   "tophat", "m.frame_notify(0.3, costume='tophat')",
+                                      "Clawd.wave(0.3)"),
+    ("tophat celebrate .3", "tophat", "m.frame_celebrate(0.3, costume='tophat')",
+                                      "Clawd.celebrate(0.3)"),
+    ("robot sad t=2.0",     "robot",  "m.frame_sad(2.0, costume='robot')",
+                                      "Clawd.sad(2.0)"),
+    ("ghost sleep t=1.0",   "ghost",  "m.frame_sleep(1.0, costume='ghost')",
+                                      "Clawd.sleep(1.0)"),
+]
+
 # (costume, dx, dy, arm_l, arm_r) — the arm-offset path that was broken.
 COSTUME_CASES = [
     ("none", 0, 0, 0, 0), ("none", 0, 0, 0, -2),
@@ -98,13 +126,25 @@ def load_daemon():
 
 
 def render_python():
-    m = load_daemon()  # noqa: F841 — used by eval
+    # ROOT goes on the path BEFORE the daemon loads, or clawdpadd.py's
+    # `try: import costumes / except ImportError: costumes = None` quietly
+    # succeeds at failing — and every costume path in the daemon renders a bare
+    # Clawd. This harness ran that way from the day it was written: it proved
+    # costumes.py matched the browser, while the *daemon's* use of it was
+    # untested and, as it turned out, broken. A test that silently degrades is
+    # worse than no test, because it reports green.
     sys.path.insert(0, str(ROOT))
+    m = load_daemon()  # noqa: F841 — used by eval
+    if m.costumes is None:
+        raise SystemExit("parity: clawdpadd loaded without costumes — "
+                         "the costume cases below would all be fake green")
     import costumes
 
     out = {}
     for name, py, _ in CASES:
         out[name] = list(bytes(eval(py)))  # noqa: S307 — table above is the input
+    for name, _cid, py, _ in DRESSED_CASES:
+        out[name] = list(bytes(eval(py)))  # noqa: S307
     for cid, dx, dy, al, ar in COSTUME_CASES:
         key = f"dressed {cid} dx={dx} dy={dy} arms={al},{ar}"
         out[key] = list(bytes(costumes.dressed(
@@ -116,6 +156,11 @@ def render_js():
     lines = ['const { Clawd } = require(process.argv[1]);', 'const out = {};']
     for name, _, js in CASES:
         lines.append(f'out[{json.dumps(name)}] = Array.from({js});')
+    # the browser dresses from inside the pose: set the outfit, then ask.
+    for name, cid, _, js in DRESSED_CASES:
+        lines.append(f'Clawd.costume = {json.dumps(cid)};')
+        lines.append(f'out[{json.dumps(name)}] = Array.from({js});')
+    lines.append('Clawd.costume = "none";')
     for cid, dx, dy, al, ar in COSTUME_CASES:
         key = f"dressed {cid} dx={dx} dy={dy} arms={al},{ar}"
         lines.append(f'Clawd.costume = {json.dumps(cid)};')

@@ -25,7 +25,7 @@ on both and compares bytes. Not "looks right" — identical bytes.
 > exists". Everything below describes the two bodies this harness covers.
 
 ```bash
-.venv/bin/python3 tools/parity.py       # 28/28 poses identical
+.venv/bin/python3 tools/parity.py       # 41/41 identical
 tools/check.sh                          # parity + golden vectors + the rest
 ```
 
@@ -99,6 +99,32 @@ machines. It's the argument for the harness:
   where `body()` and Python truncate. Invisible to the eye; caught by bytes.
 - **The two files each named the other as source of truth**, so there was no
   reference to diff against and none of the above was resolvable by reading.
+
+## What went wrong *after* parity existed (2026-07-17, same day)
+
+The harness caught five bugs on day one and then reported 32/32 green over two
+more, both of which it was structurally blind to. Worth reading before trusting
+any green tick, including this one's:
+
+- **A costumed Clawd never slept on the desk, and never paced while thinking.**
+  `build_frame` had three near-duplicate costume branches that re-derived
+  *awake* breath/bob/blink for every calm mood and returned early — so at 3am a
+  dressed Clawd breathed at 0.72 with his eyes open. The browser was right the
+  whole time, because its poses dress themselves from the inside
+  (`Clawd.dressed()`), so the outfit can't overwrite the body language.
+  **The bug lived in the gate above the poses, and parity renders poses.**
+  Fixed by giving the daemon the same seam: `_skin()`, one render path, poses
+  own body language and only `build_frame` decides what he's wearing.
+- **parity.py had never loaded the daemon's costumes.** It put ROOT on
+  `sys.path` *after* importing clawdpadd, so `try: import costumes / except
+  ImportError: costumes = None` quietly succeeded at failing. It proved
+  costumes.py matched the browser while the daemon's *use* of it went untested —
+  and broken. **A test that silently degrades is worse than no test: it reports
+  green.** It now hard-fails if the daemon loads without costumes.
+
+The lesson for the next table: a pose is (body language × outfit), and the old
+tables checked the factors, never the product. `DRESSED_CASES` checks the
+product, and caught both of the above the minute it existed.
 
 ## Adding a pose
 

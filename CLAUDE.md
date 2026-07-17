@@ -145,9 +145,13 @@ full or mini, no browser needed).
 
 **`tools/check.sh` is the whole no-hardware safety net** — golden vectors
 (clawd-core.js speaks bit-identical ROLI to blocksd), cross-body parity
-(`tools/parity.py`: 28 poses, byte-identical on desk and browser), every pose
+(`tools/parity.py`: 41 cases, byte-identical on desk and browser), every pose
 renders, imports clean. Run it before claiming anything works. It found five
-shipped drift bugs the day it was written; see `docs/POSES.md`.
+shipped drift bugs the day it was written — and two more the same day that it
+had been *structurally blind to* while reporting green (a costumed Clawd never
+slept on the desk; parity itself never loaded the daemon's costumes). Read
+`docs/POSES.md` before trusting a green tick: **a pose is body language ×
+outfit, and a table that checks the factors can miss the product.**
 
 `blockctl status`, the clawdpadd journal, and blocksd `--verbose` device
 logs are the observables; for anything visual, ask Rod to look. **Beware
