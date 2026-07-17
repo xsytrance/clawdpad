@@ -167,6 +167,7 @@ class State:
         self.block_names = {}       # serial -> display name (config)
         self.roll_call_until = 0.0  # monotonic: glasses wear name tags
         self.reunion_until = 0.0    # monotonic: the DNA-snap celebration
+        self.linked = False         # DNA-snapped: the rooms merge into one
         self.away_flair = False     # render thread only: he's not home,
                                     # so he wears his traveling scarf
         self.started = time.time()
@@ -501,7 +502,7 @@ class State:
     def maybe_wander(self, mono):
         """Awake Clawd drifts to another glass now and then, like a cat."""
         with self.lock:
-            if self.visit or len(self.devices) < 2:
+            if self.visit or self.linked or len(self.devices) < 2:
                 return
             if self.next_wander == 0.0 or mono < self.next_wander:
                 if self.next_wander == 0.0:
@@ -883,13 +884,14 @@ def _touch_pose(touch):
     return dx, dy, look, tz
 
 
-def frame_awake(t, touch=None, vigor=1.0, notice=None):
+def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0):
     """Clawd awake: breathes, bobs, paces a little, blinks, glances around.
 
     Petting leans him toward your finger with pressure glow and tracking
     eyes; a single tap (`notice`) holds his gaze for a moment. Vigor
     mirrors hunger — a hungry Clawd burns low, a starving one gutters
-    (feed him: ~/dazzler/feed/).
+    (feed him: ~/dazzler/feed/). `xoff` shifts his whole world sideways —
+    linked blocks render one wide room as per-glass windows.
     """
     breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
     if touch is not None:
@@ -904,10 +906,11 @@ def frame_awake(t, touch=None, vigor=1.0, notice=None):
     if vigor <= PET_VIGOR["starving"]:
         brightness *= 0.88 + 0.12 * math.sin(t * 13.7)
     blink = (t % 4.3) < 0.13
-    return _clawd(brightness, dx, dy, "closed" if blink else "open", look)
+    return _clawd(brightness, dx + xoff, dy,
+                  "closed" if blink else "open", look)
 
 
-def frame_thinking(phase, t, touch=None, notice=None):
+def frame_thinking(phase, t, touch=None, notice=None, xoff=0):
     """Clawd hard at work: pacing back and forth, eyes leading the way.
 
     `phase` accumulates at 2.5+4.5*energy rad/s in the render loop, so he
@@ -925,7 +928,8 @@ def frame_thinking(phase, t, touch=None, notice=None):
             (1 if vel > 0.25 else (-1 if vel < -0.25 else 0))
         brightness = 0.9
     blink = (t % 2.1) < 0.09
-    return _clawd(brightness, dx, dy, "closed" if blink else "open", look)
+    return _clawd(brightness, dx + xoff, dy,
+                  "closed" if blink else "open", look)
 
 
 def frame_sleep(t, touch=None):
@@ -1182,6 +1186,26 @@ def build_frames(mood, t, phase, state, touch, mono):
         frames[to] = frame_visit(t, p, False, direction)
         return frames
     with state.lock:
+        linked = state.linked
+    if linked and mood in ("awake", "thinking"):
+        # snapped: the wall is gone — one wide room, roamed end to end
+        # (he'll happily sit straddling the seam)
+        state.away_flair = False
+        span = W * (len(devices) - 1)
+        wx = round(span / 2 * (1 + math.sin(t * 0.09)))
+        vigor = state.pet_vigor()
+        notice = state.notice_look(time.time())
+        frames = {}
+        for i, u in enumerate(devices):
+            xoff = wx - W * i
+            if mood == "thinking":
+                frames[u] = frame_thinking(phase, t, touch, notice,
+                                           xoff=xoff)
+            else:
+                frames[u] = frame_awake(t, touch, vigor, notice,
+                                        xoff=xoff)
+        return frames
+    with state.lock:
         home = state.home
     frames = {u: frame_empty(t) for u in devices}
     if home in frames:
@@ -1375,6 +1399,10 @@ def touch_loop(state):
                                 log("DNA snap — reunion!")
                                 if state.player:
                                     state.player.play("jingle")
+                            elif prev_links > 0 and links == 0:
+                                log("blocks parted — rooms separate again")
+                            with state.lock:
+                                state.linked = links > 0
                             prev_links = links
                             continue
                         if ev.get("type") != "touch":
@@ -1383,7 +1411,8 @@ def touch_loop(state):
                         uid = ev.get("uid")
                         with state.lock:
                             game_on = state.game is not None
-                            away = len(state.devices) > 1 \
+                            away = not state.linked \
+                                and len(state.devices) > 1 \
                                 and uid is not None and uid != state.home
                         if game_on:
                             # every finger is a paddle; nothing else
