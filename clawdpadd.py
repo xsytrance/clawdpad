@@ -33,6 +33,8 @@ Command protocol: one JSON object per line, one JSON reply per line.
   {"cmd": "anim", "arg": "celebrate"}
   {"cmd": "play", "arg": "jingle|hello|chime"}       # jingle also jumps
   {"cmd": "hum", "arg": "on|off"}                     # ambient pad while thinking
+  {"cmd": "visit"}                                    # hop to the other block
+  {"cmd": "game", "arg": "pong|off"}                  # pong across the glasses
   {"cmd": "clear"}                                    # drop notify + manual mode
   {"cmd": "status"}
 
@@ -56,6 +58,7 @@ import http.server
 import json
 import math
 import os
+import random
 import shutil
 import socket
 import struct
@@ -84,6 +87,11 @@ ENERGY_TAU = 25.0          # seconds for work-energy to decay to 1/e
 TAP_MAX_SECONDS = 0.35     # touch shorter than this is a tap, longer is petting
 DOUBLE_TAP_WINDOW = 0.6    # two taps inside this = double-tap
 NOTICE_SECONDS = 1.2       # how long a single tap holds Clawd's gaze
+VISIT_SECONDS = 3.2        # a hop between blocks: walk off one, onto the next
+WANDER_EVERY = (150, 420)  # awake Clawd drifts to another block (min, max s)
+HOME_SERIAL = "LPM9E1KL3HO9XC5G"  # Clawd's home glass (config "home_serial")
+PONG_SPEED = 11.0          # ball px/s at serve; hits speed it up a touch
+PONG_PADDLE = 4            # paddle height in px (2px wide — chunky rules)
 
 # Clawd's geometry, scaled from the official Claude Code icon SVG
 # (viewBox 24x24; same rect decomposition dazzler's make_clawd.py uses):
@@ -144,6 +152,13 @@ class State:
         self.taps = []              # recent tap timestamps (double-tap detect)
         self.notice = None          # (look_dx, until): single-tap gaze
         self.block = {"connected": False, "serial": "", "battery": None}
+        self.devices = []           # uids in blocksd order (render_loop's)
+        self.dev_serials = {}       # uid -> serial
+        self.home = None            # the glass Clawd inhabits (multi-block)
+        self.visit = None           # (from_uid, to_uid, mono_t0): hop in flight
+        self.next_wander = 0.0      # monotonic deadline for a self-directed hop
+        self.home_serial = HOME_SERIAL
+        self.game = None            # pong state dict (cmd game), or None
         self.started = time.time()
         self.player = None          # set in main()
         self.hum_enabled = False
@@ -314,6 +329,28 @@ class State:
                         grid[y + pad][x + pad] = bool(v)
                 self.qr_matrix = grid
                 self.qr_until = now + float(msg.get("seconds", 30))
+            elif cmd == "game":
+                arg = str(msg.get("arg", "pong")).lower()
+                if arg in ("off", "stop"):
+                    self.game = None
+                elif arg == "pong":
+                    n = max(1, len(self.devices))
+                    mono = time.monotonic()
+                    self.game = {"kind": "pong", "n": n, "fw": W * n,
+                                 "bx": W * n / 2, "by": H / 2,
+                                 "vx": PONG_SPEED,
+                                 "vy": random.choice((-4.5, 4.5)),
+                                 "paddles": {"L": H / 2, "R": H / 2},
+                                 "score": [0, 0], "last": mono,
+                                 "serve_until": mono + 1.2}
+                else:
+                    return {"ok": False, "error": f"unknown game: {arg}"}
+            elif cmd == "visit":
+                others = [u for u in self.devices if u != self.home]
+                if not others:
+                    return {"ok": False, "error": "no second block connected"}
+                if not self.visit:
+                    self.visit = (self.home, others[0], time.monotonic())
             elif cmd == "clear":
                 self.notify_until = 0.0
                 self.notify_text = ""
@@ -324,6 +361,7 @@ class State:
             else:
                 return {"ok": False, "error": f"unknown cmd: {cmd}"}
         return {"ok": True, "mood": self.mood(now), "block": dict(self.block),
+                "home": self.dev_serials.get(self.home, ""),
                 "size": self.size,
                 "costume": self.costume,
                 "energy": round(self.energy, 3),
@@ -393,6 +431,122 @@ class State:
             look = max(-1, min(1, round((held[0] * (W - 1) - 7) * 0.2)))
             self.notice = (look, now + NOTICE_SECONDS)
         return None
+
+    # ── Two blocks, one Clawd ────────────────────────────────────────────
+
+    def start_visit(self, to_uid, mono):
+        """Send Clawd walking to another glass (no-op mid-hop or at home)."""
+        with self.lock:
+            if self.visit or to_uid == self.home \
+                    or to_uid not in self.devices:
+                return False
+            self.visit = (self.home, to_uid, mono)
+            return True
+
+    def visit_pose(self, mono):
+        """Progress of the hop in flight; retires it when the walk is done."""
+        with self.lock:
+            if not self.visit:
+                return None
+            frm, to, t0 = self.visit
+            p = (mono - t0) / VISIT_SECONDS
+            if p >= 1.0 or to not in self.devices \
+                    or frm not in self.devices:
+                self.visit = None
+                if to in self.devices:
+                    self.home = to
+                return None
+            return frm, to, p
+
+    def maybe_wander(self, mono):
+        """Awake Clawd drifts to another glass now and then, like a cat."""
+        with self.lock:
+            if self.visit or len(self.devices) < 2:
+                return
+            if self.next_wander == 0.0 or mono < self.next_wander:
+                if self.next_wander == 0.0:
+                    self.next_wander = mono + random.uniform(*WANDER_EVERY)
+                return
+            self.next_wander = mono + random.uniform(*WANDER_EVERY)
+            others = [u for u in self.devices if u != self.home]
+            self.visit = (self.home, random.choice(others), mono)
+
+    # ── Pong across the glasses ──────────────────────────────────────────
+
+    def game_step(self, mono):
+        """Advance pong physics; returns True while a game is on.
+
+        The field is W*n_blocks wide. Two blocks: a paddle on each outer
+        edge, one player per glass. One block: the left edge is a wall
+        and the score counts the rally.
+        """
+        with self.lock:
+            g = self.game
+            if not g:
+                return False
+            dt = min(0.1, mono - g["last"])
+            g["last"] = mono
+            if mono < g["serve_until"]:
+                return True
+            single = g["n"] <= 1
+            g["bx"] += g["vx"] * dt
+            g["by"] += g["vy"] * dt
+            if g["by"] < 1:
+                g["by"], g["vy"] = 1, abs(g["vy"])
+            elif g["by"] > H - 2:
+                g["by"], g["vy"] = H - 2, -abs(g["vy"])
+            point = None
+            if g["bx"] < 2:
+                if single:
+                    g["bx"], g["vx"] = 2, abs(g["vx"])
+                elif abs(g["by"] - g["paddles"]["L"]) <= PONG_PADDLE / 2 + 1:
+                    g["bx"] = 2
+                    g["vx"] = min(22.0, abs(g["vx"]) * 1.05)
+                    g["vy"] += (g["by"] - g["paddles"]["L"]) * 1.8
+                else:
+                    point = 1                     # right player scores
+            elif g["bx"] > g["fw"] - 3:
+                if abs(g["by"] - g["paddles"]["R"]) <= PONG_PADDLE / 2 + 1:
+                    g["bx"] = g["fw"] - 3
+                    g["vx"] = -min(22.0, abs(g["vx"]) * 1.05)
+                    g["vy"] += (g["by"] - g["paddles"]["R"]) * 1.8
+                    if single:                    # a rally point per return
+                        g["score"][1] += 1
+                else:
+                    point = 0                     # left player scores
+            if point is not None:
+                if single:
+                    g["score"][1] = 0             # rally over
+                else:
+                    g["score"][point] += 1
+                g["bx"], g["by"] = g["fw"] / 2, H / 2
+                g["vx"] = PONG_SPEED if point == 0 else -PONG_SPEED
+                g["vy"] = random.choice((-4.5, 4.5))
+                g["serve_until"] = mono + 1.2
+                player = self.player
+            else:
+                player = None
+            g["vy"] = max(-9.0, min(9.0, g["vy"]))
+        if player:
+            player.play("chime")
+        return True
+
+    def game_touch(self, uid, y):
+        """A finger anywhere on a glass drives that glass's paddle."""
+        with self.lock:
+            g = self.game
+            if not g or not self.devices:
+                return
+            side = "R" if len(self.devices) <= 1 \
+                or uid == self.devices[-1] else "L"
+            g["paddles"][side] = max(PONG_PADDLE / 2,
+                                     min(H - 1 - PONG_PADDLE / 2,
+                                         y * (H - 1)))
+
+    def game_snapshot(self):
+        with self.lock:
+            return dict(self.game, paddles=dict(self.game["paddles"])) \
+                if self.game else None
 
     # ── Soul link ────────────────────────────────────────────────────────
 
@@ -765,6 +919,77 @@ def frame_celebrate(rel):
                   arm_l_dy=-2, arm_r_dy=-2)
 
 
+def frame_empty(t):
+    """A glass with nobody home: a faint ember night-light, breathing."""
+    buf = bytearray(W * H * 3)
+    glow = 0.10 + 0.05 * math.sin(t * 2 * math.pi / 9.0)
+    col = tuple(int(c * glow) for c in CORAL)
+    for y in (7, 8):
+        for x in (7, 8):
+            _blit(buf, x, y, col)
+    return buf
+
+
+def frame_pong(g, block_i, mono):
+    """One glass of the pong field: outer-edge paddles, a 2x2 ball.
+
+    Serve pauses show the score as a big double-size digit (the rally
+    count in single-block wall-ball). Everything chunky, per the rules
+    of the woven glass.
+    """
+    buf = bytearray(W * H * 3)
+    n = g["n"]
+    if mono < g["serve_until"]:
+        s = g["score"][0] if (n > 1 and block_i == 0) else g["score"][1]
+        rows = _MARQUEE_FONT[str(s % 10)]
+        col = tuple(int(c * 0.55) for c in CORAL)
+        for r in range(5):
+            for c in range(3):
+                if rows[r][c] == "1":
+                    for oy in (0, 1):
+                        for ox in (0, 1):
+                            _blit(buf, 4 + c * 2 + ox, 2 + r * 2 + oy, col)
+        return buf
+    pad = tuple(int(c * 0.9) for c in CORAL)
+    half = PONG_PADDLE // 2
+    if n == 1:
+        wall = tuple(int(c * 0.18) for c in CORAL)
+        for y in range(H):
+            _blit(buf, 0, y, wall)
+    elif block_i == 0:
+        ly = round(g["paddles"]["L"])
+        for y in range(ly - half, ly - half + PONG_PADDLE):
+            _blit(buf, 0, y, pad)
+            _blit(buf, 1, y, pad)
+    if block_i == n - 1:
+        ry = round(g["paddles"]["R"])
+        for y in range(ry - half, ry - half + PONG_PADDLE):
+            _blit(buf, 13, y, pad)
+            _blit(buf, 14, y, pad)
+    bx, by = round(g["bx"]) - block_i * W, round(g["by"])
+    for oy in (0, 1):
+        for ox in (0, 1):
+            _blit(buf, bx + ox, by - 1 + oy, (235, 235, 235))
+    return buf
+
+
+def frame_visit(t, p, leaving, direction):
+    """One glass of a hop: Clawd walks off the old block, onto the new.
+
+    `p` runs 0..1 over the whole hop — the first half leaves, the second
+    half arrives. 18px of dx clears the glass completely; the hurried
+    walk-bob and the eyes leading toward `direction` sell the trip.
+    """
+    if leaving:
+        prog = min(1.0, p * 2.0)
+        dx = direction * round(prog * 18)
+    else:
+        prog = max(0.0, p * 2.0 - 1.0)
+        dx = -direction * round((1.0 - prog) * 18)
+    dy = -1 if int(t * 7) % 2 else 0
+    return _clawd(0.92, dx, dy, "open", direction)
+
+
 
 _MARQUEE_FONT = {
     "A": ("010","101","111","101","101"), "B": ("110","101","110","101","110"),
@@ -791,12 +1016,16 @@ _MARQUEE_FONT = {
 }
 
 
-def _marquee_frame(text, t):
-    """Scroll `text` right-to-left across the glass in Claude coral."""
+def _marquee_frame(text, t, block=0, span=1):
+    """Scroll `text` right-to-left across the glass in Claude coral.
+
+    With several blocks in a row, `block`/`span` render one 15px window
+    of a single wide ribbon that flows across all of them.
+    """
     buf = bytearray(W * H * 3)
     glyphs = [_MARQUEE_FONT.get(ch, _MARQUEE_FONT["?"]) for ch in text.upper()]
     width = len(glyphs) * 4
-    gx = 15 - (int(t * 11) % (width + 15))
+    gx = span * W - (int(t * 11) % (width + span * W)) - block * W
     for rows in glyphs:
         for r in range(5):
             for col in range(3):
@@ -847,6 +1076,47 @@ def build_frame(mood, t, phase, state, touch):
             rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
         return frame_celebrate(max(0.0, rel))
     return frame_awake(t, touch, state.pet_vigor(), notice)
+
+
+def build_frames(mood, t, phase, state, touch, mono):
+    """One frame per connected block.
+
+    A lone block is exactly the classic behavior. With more, Clawd
+    inhabits one glass (state.home) and the others hold a night-light;
+    takeover moods (qr/notify/celebrate) mirror everywhere, a marquee
+    spans the row of glasses as one wide ribbon, and a visit in flight
+    walks him from one glass to the next.
+    """
+    with state.lock:
+        devices = list(state.devices)
+        marquee = state.marquee
+    game = state.game_snapshot()
+    if game and devices:
+        return {u: frame_pong(game, i, mono)
+                for i, u in enumerate(devices)}
+    if len(devices) <= 1:
+        return {u: build_frame(mood, t, phase, state, touch)
+                for u in devices}
+    if marquee and mood in ("awake", "sleep", "thinking"):
+        return {u: _marquee_frame(marquee, t, i, len(devices))
+                for i, u in enumerate(devices)}
+    if mood in ("qr", "notify", "celebrate"):
+        frame = build_frame(mood, t, phase, state, touch)
+        return {u: frame for u in devices}
+    pose = state.visit_pose(mono)
+    if pose:
+        frm, to, p = pose
+        direction = 1 if devices.index(to) > devices.index(frm) else -1
+        frames = {u: frame_empty(t) for u in devices}
+        frames[frm] = frame_visit(t, p, True, direction)
+        frames[to] = frame_visit(t, p, False, direction)
+        return frames
+    with state.lock:
+        home = state.home
+    frames = {u: frame_empty(t) for u in devices}
+    if home in frames:
+        frames[home] = build_frame(mood, t, phase, state, touch)
+    return frames
 
 
 # ------------------------------------------------------------------ plumbing
@@ -913,6 +1183,7 @@ def render_loop(state):
                     with state.lock:
                         state.block = {"connected": False, "serial": "",
                                        "battery": None}
+                        state.devices = []
                     if not announced_wait:
                         log("blocksd up, block absent — will keep checking")
                         announced_wait = True
@@ -925,10 +1196,20 @@ def render_loop(state):
                                    "serial": master["serial"],
                                    "battery": master.get("battery_level"),
                                    "blocks": len(devs)}
+                    state.devices = [d["uid"] for d in devs]
+                    state.dev_serials = {d["uid"]: d["serial"]
+                                         for d in devs}
+                    state.home = next(
+                        (d["uid"] for d in devs
+                         if d["serial"] == state.home_serial),
+                        devs[0]["uid"])
+                    state.visit = None
+                    state.next_wander = 0.0
                 log("streaming to " + ", ".join(d["serial"] for d in devs)
                     + f" (battery {master.get('battery_level')}%)")
-                headers = [struct.pack("<BBQ", 0xBD, 0x01, d["uid"])
-                           for d in devs]
+                headers = {d["uid"]: struct.pack("<BBQ", 0xBD, 0x01,
+                                                 d["uid"])
+                           for d in devs}
                 rejects = 0
                 frames_sent = 0
                 phase = 0.0
@@ -941,12 +1222,15 @@ def render_loop(state):
                     energy = state.tick(dt)
                     phase += dt * (2.5 + 4.5 * energy)
                     touch = state.touch_snapshot()
-                    frame = build_frame(mood, mono - start, phase, state,
-                                        touch)
-                    # every connected block gets a Clawd — twins in lockstep
+                    game_on = state.game_step(mono)
+                    if not game_on and len(devs) > 1 and mood == "awake" \
+                            and touch is None:
+                        state.maybe_wander(mono)
+                    frames = build_frames(mood, mono - start, phase, state,
+                                          touch, mono)
                     accepted = 0
-                    for header in headers:
-                        sock.sendall(header + frame)
+                    for uid, header in headers.items():
+                        sock.sendall(header + frames[uid])
                         ack = sock.recv(1)
                         if not ack:
                             raise ConnectionError("blocksd closed")
@@ -960,12 +1244,14 @@ def render_loop(state):
                         if n >= 0 and n != len(devs):
                             log(f"topology changed ({len(devs)} → {n} blocks)")
                             raise ConnectionError("topology changed")
-                    # petting deserves full frame rate even while asleep
-                    fps = FPS_DEFAULT if touch else FPS.get(mood, FPS_DEFAULT)
+                    # petting and pong deserve full frame rate even asleep
+                    fps = FPS_DEFAULT if touch or game_on \
+                        else FPS.get(mood, FPS_DEFAULT)
                     time.sleep(1 / fps)
         except (OSError, ConnectionError, json.JSONDecodeError) as e:
             with state.lock:
                 state.block = {"connected": False, "serial": "", "battery": None}
+                state.devices = []
             log(f"stream dropped ({e}); retrying in 3s")
             time.sleep(3)
 
@@ -1000,6 +1286,23 @@ def touch_loop(state):
                         if ev.get("type") != "touch":
                             continue
                         action = ev.get("action")
+                        uid = ev.get("uid")
+                        with state.lock:
+                            game_on = state.game is not None
+                            away = len(state.devices) > 1 \
+                                and uid is not None and uid != state.home
+                        if game_on:
+                            # every finger is a paddle; nothing else
+                            if action in ("start", "move"):
+                                state.game_touch(uid,
+                                                 float(ev.get("y", 0.5)))
+                            continue
+                        if away:
+                            # a tap on an empty glass calls Clawd over
+                            if action == "start" and \
+                                    state.start_visit(uid, time.monotonic()):
+                                log("summoned to the other block by touch")
+                            continue
                         x = float(ev.get("x", 0.5))
                         y = float(ev.get("y", 0.5))
                         z = float(ev.get("z", 0.5))
@@ -1215,6 +1518,7 @@ def main():
     if cfg.get("size") in ("full", "mini"):
         state.size = cfg["size"]
     state.matrix_fanout = bool(cfg.get("matrix_fanout", False))
+    state.home_serial = str(cfg.get("home_serial", HOME_SERIAL))
     # pre-render all sounds off the hot path so play() never blocks the lock
     threading.Thread(
         target=lambda: [state.player._wav(n)

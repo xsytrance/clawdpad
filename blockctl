@@ -15,6 +15,8 @@ Commands:
   anim <celebrate>                     jump with both arms up
   play [jingle|hello|chime]            play a melody (jingle also jumps)
   hum <on|off>                         ambient pad while thinking
+  visit                                send Clawd to the other block (2+)
+  game <pong|off>                      pong! two blocks = versus, one = wall
   size <full|mini>                     big Clawd, or chibi-Clawd roaming
   qr [text] [-t SECONDS]               the glass becomes a Micro QR (M3=15x15)
   costume [id]                         dress him (see 'costume list')
@@ -147,6 +149,15 @@ def main(argv):
             print(reply.get("error"), file=sys.stderr)
     elif cmd == "hum":
         send({"cmd": "hum", "arg": (args[0] if args else "on").lower()})
+    elif cmd == "visit":
+        reply = send({"cmd": "visit"})
+        if reply and not reply.get("ok"):
+            print(reply.get("error"), file=sys.stderr)
+    elif cmd == "game":
+        reply = send({"cmd": "game",
+                      "arg": (args[0] if args else "pong").lower()})
+        if reply and not reply.get("ok"):
+            print(reply.get("error"), file=sys.stderr)
     elif cmd == "size":
         send({"cmd": "size", "arg": (args[0] if args else "full").lower()})
     elif cmd == "costume":
@@ -205,8 +216,9 @@ def main(argv):
         if cmd == "status":
             blk = reply.get("block", {})
             n = blk.get("blocks", 1)
+            home = reply.get("home", "")
             where = (f"{blk.get('serial')}"
-                     + (f" +{n - 1} twin(s)" if n > 1 else "")
+                     + (f" +{n - 1} more (home {home})" if n > 1 else "")
                      + f" battery {blk.get('battery')}%"
                      if blk.get("connected") else "block absent")
             print(f"mood {reply.get('mood')}  ·  {where}  ·  "
