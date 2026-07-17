@@ -90,6 +90,53 @@ With `~/.config/clawdpad/config.json` set (token + port + topic):
   phone buzzes when Clawd needs you (notify goes out at high priority;
   everything else is silent data for apps).
 
+## 7b. Watching him — the event stream
+
+Everything above *tells Clawd things*. This is the other direction: how you
+find out what he did. It's the foundation of anything that wants to react to
+him rather than poke him.
+
+On the socket, `subscribe` turns the connection into a live feed:
+
+```bash
+# every event, forever, one JSON object per line
+printf '{"cmd":"subscribe"}\n' | nc -U /tmp/clawdpad/clawdpad.sock
+
+# only the ones you care about
+printf '{"cmd":"subscribe","events":["notify","ack"]}\n' \
+  | nc -U $XDG_RUNTIME_DIR/clawdpad/clawdpad.sock
+```
+
+Over HTTP it's Server-Sent Events, so a browser tab or a box across the
+tailnet can listen too:
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8137/events?events=tap,ack"
+```
+
+The first line back on the socket is the usual status envelope — current
+state, then the stream.
+
+| event | when | carries |
+|---|---|---|
+| `notify` | something asked for your attention | `text`, `seconds` |
+| `ack` | **you tapped the glass and cleared it** | `text` (what was ack'd) |
+| `tap` | a single tap | `x`, `y` |
+| `double-tap` | he jumps | — |
+| `triple-tap` | he resizes | `size` |
+| `touch` | a finger lands | `action`, `x`, `y`, `z` |
+| `session` | Claude Code hook fired | `kind`, `sid`, `project` |
+| `ping` | nothing happened for 20s | — (keepalive) |
+
+**`notify` → `ack` is the whole loop.** Raise something, he holds it and
+waves, and the `ack` fires the instant a human taps him — that's how an
+integration knows its thing was actually seen by a person. A queue, not a
+firehose: he holds one thing at a time, like anyone with a mouth.
+
+If a subscriber stops reading, it drops events rather than backing up into
+the render loop. Clawd keeps breathing no matter what an integration does.
+
 ### ntfy quickstart (phone buzzes, zero accounts)
 
 1. Install the **ntfy** app → "+" → type your topic (the `ntfy_topic`

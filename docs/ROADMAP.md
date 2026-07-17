@@ -21,9 +21,13 @@ Recommended next, in order:
    log check)? Prints fixes, not just failures. *Adoption lives or dies here.*
 2. **`install.sh`** — venv + patched blocksd + systemd units + (optionally)
    the Claude Code hooks JSON merge, one command.
-3. **Battery body language** — the block knows its battery; Clawd should:
-   sluggish pacing and slow yawning blinks under 20%, a contented warm pulse
-   while charging. (Data is already in `state.block["battery"]`.)
+3. ~~**Battery body language**~~ — ✅ **shipped 2026-07-17.** Sluggish pacing
+   and slow yawning blinks under 20%, a contented warm pulse while charging.
+   `State.battery_pace/battery_vigor/battery_tired`, shaped like `pet_vigor()`
+   so they compose. It was blocked by a bug nobody had noticed: the protocol's
+   battery field is 5 bits, so `state.block["battery"]` was a raw 0-31 printed
+   with a `%` — a full block read "31%" and there was no threshold to write
+   against. Fixed (`battery_percent()`); see docs/MACBOOK.md Phase 3.
 4. **Config for the sleep window** — `"sleep": [23, 7]` in config.json;
    night-owl owners exist (see: this project's entire commit history).
 5. **Micro-behaviors** — rare idle moments so he never feels looped: a
@@ -90,6 +94,18 @@ Pro is APIs + an open reaction vocabulary, so anything can make Clawd feel
 something. Design center: **props and poses, not pixels** — integrators say
 *what happened*, Clawd decides how to be about it. Nobody gets to draw on
 the glass directly; that's how you keep every integration looking like him.
+
+> **✅ The missing primitive landed 2026-07-17: the outbound event stream.**
+> Everything below needed a way for Clawd to say what *he* did, and the daemon
+> had none — `apply()` was strictly request/response and the only push in the
+> whole system was ntfy's 1 Hz coalesced state echo on three fields. A tap, the
+> most important thing he can tell you, never left the process.
+> Now: `{"cmd":"subscribe"}` on the socket, `GET /events` (SSE) over HTTP.
+> Kinds: `notify · ack · tap · double-tap · triple-tap · touch · session`.
+> **`notify` → `ack` is the loop** — raise a thing, he holds it, and `ack`
+> fires when a human taps the glass. That's tap-to-acknowledge, working today,
+> without the callback URL. Gesture commands now have a touch stream to read.
+> See docs/MANUAL.md §7b.
 
 - **Props system** (the foundation): small overlay sprites Clawd holds,
   wears, or stands next to, composed onto any pose. An envelope held in his

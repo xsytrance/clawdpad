@@ -16,12 +16,23 @@ here's how, plus a pile of ideas to steal.
 ## Where the art lives
 
 One function, mirrored in three places (keep them identical):
-- `web/clawd-core.js` — the reference. **Author here first** (see below).
+- `web/clawd-core.js` — **canonical. Author here first**, always (see below).
 - `clawdpad-app/.../Costumes.kt` — the Android app.
 - `costumes.py` — the desk daemon.
 
+The arrow only ever points *out* of `clawd-core.js`. This isn't a style
+preference: until 2026-07-17 `costumes.py` called clawd-core.js the source of
+truth while clawd-core.js called `clawdpadd.py` the source of truth, and with
+each naming the other there was nothing to diff against — so when a costumed
+Clawd could wave in the browser but not on the desk, neither side was wrong.
+Author in JS, mirror out, and that can't happen again.
+
 Register the costume in each file's list (`COSTUMES` / `Clawdrobe.ALL`)
 with an id, emoji, label, and the skin flag; add a dispatch branch.
+
+Mirroring by hand is the tax for having three bodies. `tools/check.sh` catches
+a costume that renders blank, but nothing catches a costume that renders
+*differently* in each — so do them in one sitting, not "later".
 
 ## The one trick that saves you: verify headlessly
 

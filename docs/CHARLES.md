@@ -22,8 +22,12 @@ git clone <rod's clawdpad repo> clawdpad
 git clone https://github.com/hyperb1iss/blocksd
 cd blocksd && git am ../clawdpad/patches/*.patch && cd ../clawdpad
 
-# 2. python env (any Python 3.11+; macOS ships one, brew's is fine too)
-python3 -m venv .venv
+# 2. python env — blocksd needs Python >= 3.13, and macOS ships 3.9.6, so
+#    a plain `python3 -m venv` builds a venv pip refuses to install into
+#    ("Package 'blocksd' requires a different Python"). Name the interpreter:
+brew install python@3.13
+/opt/homebrew/bin/python3.13 -m venv .venv
+.venv/bin/python3 -V                  # expect 3.13.x, NOT 3.9.6
 .venv/bin/pip install ../blocksd segno
 
 # 3. plug the Lightpad in (USB-C), press its side button, then two terminals:
@@ -39,18 +43,25 @@ Zero installs — that's the Mac "app" for day one. Sounds work
 automatically (`afplay` fallback is in). `./blockctl status` works in a
 third terminal.
 
-If it fails, it fails in `blocksd run` (CoreMIDI port naming is the
-untested part) — screenshot the error for Rod. Everything above blocksd
-is OS-agnostic.
+**The whole Mac path is rehearsed as of 2026-07-16** — Rod ran it end to
+end on his own MacBook, one block and two. CoreMIDI port naming *was* the
+untested part, and it *was* broken: macOS names every block
+`Lightpad BLOCK  Lightpad BLOCK` with no index suffix, and blocksd dropped
+the second one. Fixed in `patches/0003-*` — which is why step 1's
+`git am ../clawdpad/patches/*.patch` is not optional on a Mac. If it still
+fails, it fails in `blocksd run` — screenshot the error for Rod.
+Everything above blocksd is OS-agnostic.
 
-## Connecting the two pads 🎉 (✅ built 2026-07-15, needs 2nd block to verify)
+## Connecting the two pads 🎉 (✅ built 2026-07-15, ✅ verified on macOS 2026-07-16)
 
 On whichever machine hosts (Charles's Mac if the 🧪 works, otherwise any
 Linux box, otherwise back at Rod's place):
 
 - **Option A — snap them**: ROLI DNA magnetic edges, click together.
   One USB cable powers the pair; the master relays its neighbor.
-- **Option B — two USB cables** into the same computer. Works identically.
+- **Option B — two USB cables** into the same computer. Works identically
+  — ✅ verified on macOS 2026-07-16, but **only with `patches/0003-*`
+  applied**; without it the Mac silently ignores the second block.
 
 Either way, within ~15 seconds clawdpadd notices the topology change.
 
@@ -92,18 +103,26 @@ live; `blockctl names` prints the roster.
   is 🧪: the old "firmware gates API mode over BLE" theory was RETRACTED
   (it was the packet-index off-by-one, fixed in v0.3) — retest pending.
 
-## Wireless status (updated 2026-07-16)
+## Wireless status (updated 2026-07-17)
 
-🧪 Closer than we thought. The v0.3 index fix retracted the only known
-blocker (see APP.md findings). Paths, most promising first:
+# ✅ **IT WORKS. Clawd runs on a battery block over Bluetooth.**
 
-- **Charles's MacBook** (the fun retest): macOS has native BLE MIDI —
-  Audio MIDI Setup → MIDI Studio → Bluetooth → connect "Lightpad BLOCK".
-  The paired block becomes a normal CoreMIDI device that **Chrome's
-  WebMIDI can see**, so the clawdpad web page (`web/index.html` → "host
-  my block") and PRISM's Lightpad Out should drive it *wirelessly*.
-  Expect to lower fps — BLE MIDI is ~4–10 KB/s; the diff streaming was
-  built for exactly this.
+Rod did it on his MacBook the night before demo day (`docs/MACBOOK.md`
+Phase 3). Paired through Audio MIDI Setup → Bluetooth, USB unplugged, hosted
+from the Chrome tab: Clawd on the glass, no cable, no daemon, no install.
+The "firmware gates API mode over BLE" theory is **dead** — it was always the
+packet-index bug. Nobody had retried since it was fixed; it had been one test
+away the whole time.
+
+**This is the demo finale.** A block on a table, nothing plugged into it, a
+browser tab driving it.
+
+Verified: one block, over BLE, from the web page. Not yet: two blocks
+wirelessly, and long-run smoothness (BLE MIDI is ~4–10 KB/s — if he stutters
+we add a low-fps profile; the diff streaming was built for exactly this).
+
+Remaining paths:
+
 - **Charles's iPhone**: iOS speaks BLE MIDI natively (pair through
   GarageBand or any Bluetooth-MIDI-capable app), so the block works as
   a wireless *instrument* from the phone today. Hosting Clawd from an

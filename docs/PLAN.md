@@ -101,6 +101,31 @@ later (see idea #15) is one more line.
 > - ⚠ Glass rendering was dark until 2026-07-15: blocksd assembler emitted
 >   code-relative jump targets (VM wants program-relative) → "Illegal instruction"
 >   every repaint → factory app. Fixed + vendored; full story in docs/BLOCKSD-FIXES.md.
+> - ⚠ The second block was invisible on macOS until 2026-07-16: CoreMIDI names
+>   every block `Lightpad BLOCK  Lightpad BLOCK` (no index suffix — ALSA appends
+>   port numbers, macOS does not), and blocksd keyed device groups by port name,
+>   so block 2 silently never got a DeviceGroup. Fixed (patches/0003); the whole
+>   walk-the-layers story is in docs/BLOCKSD-FIXES.md.
+> - 🍎 macOS dress rehearsal ✅ 2026-07-16/17 (docs/MACBOOK.md) — Phase 1: two
+>   blocks live on a MacBook (name tags on both glasses, `visit` migrates home
+>   XC5G → SH8T, pong spans the pair). Phase 2: the web host works after two
+>   bugs that only appear with two blocks — see below. Phase 4-5 (PRISM
+>   Lightpad Out, pack-up) still to do.
+> - 📶 **BLE ✅ 2026-07-17 — Clawd runs wirelessly on a battery block**, hosted
+>   from a Chrome tab, no cable and no daemon (docs/MACBOOK.md Phase 3). The
+>   "firmware gates API mode over BLE" theory is dead for good; it was always
+>   the packet-index bug, and nobody had retried since the fix. One block so
+>   far; two-blocks-over-BLE and long-run smoothness still unknown.
+> - ⚠ The web page hosted nothing with two blocks plugged in: it **hardcoded
+>   device index 9** (true for XC5G, but SH8T reports 32) and kept the *last*
+>   matching MIDI port, so it opened one block and addressed another. It also
+>   never listened — `inp` was assigned and unused, which is why the index was
+>   a constant. Fixed 2026-07-17: `TopologyDecoder` in clawd-core.js asks the
+>   block who it is (verified bit-identical to blocksd's decoder on captured
+>   packets). Full story in docs/MACBOOK.md Phase 2.
+> - ⚠ `blockctl status` reported "battery 31%" on fully charged blocks from day
+>   one: the protocol's battery field is **5 bits (raw max 31)** and we printed
+>   the raw value with a `%`. Fixed 2026-07-17 (`battery_percent()`).
 > - Phase 4 ✅ 2026-07-15 — tap-ack (shipped with Phase 1), press-and-hold petting
 >   (lean + pressure glow, all moods), double-tap info glyphs (time/sessions/battery;
 >   also `blockctl glyph` / remote `{"cmd":"glyph"}`). Permission-prompt answering via

@@ -36,13 +36,16 @@ project.
 
 ## Requirements
 
-- Linux with PipeWire/ALSA, Python 3.11+
+- Linux with PipeWire/ALSA, or macOS (CoreMIDI — no systemd, just run the
+  two processes in two terminals)
+- Python 3.13+ (blocksd requires it; macOS ships 3.9.6, so
+  `brew install python@3.13` and build the venv with that interpreter)
 - A ROLI Lightpad Block (M) on USB-C
 - [blocksd](https://github.com/hyperb1iss/blocksd) — the reverse-engineered
-  ROLI Blocks daemon — **with the two fixes in [`patches/`](patches/)**
-  (upstream 0.4.0 cannot render LED programs; see
-  [docs/BLOCKSD-FIXES.md](docs/BLOCKSD-FIXES.md) for the whole detective
-  story). Until they land upstream:
+  ROLI Blocks daemon — **with the three fixes in [`patches/`](patches/)**
+  (upstream 0.4.0 cannot render LED programs, and drops the second block on
+  macOS; see [docs/BLOCKSD-FIXES.md](docs/BLOCKSD-FIXES.md) for both
+  detective stories). Until they land upstream:
 
 ```bash
 git clone https://github.com/hyperb1iss/blocksd
