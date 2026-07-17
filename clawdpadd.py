@@ -15,7 +15,8 @@ Moods (all rendered by _clawd()):
   thinking  pacing back and forth, eyes leading — faster the harder Claude
             works (tool-call hooks feed a work-energy meter)
   sleep     dim, eyes closed, slow breathing, occasional peek (23:00-07:00
-            when idle); petting half-wakes him
+            when idle, or config "sleep": [start, end]); petting half-wakes him
+  sad       slumped, arms drooped, heavy blinks — the quiet one, used rarely
   notify    right arm raised and waving, gentle pulse — tap to acknowledge
   celebrate one-shot: both arms up, jumping (~2.4s)
 
@@ -98,7 +99,7 @@ FPS_DEFAULT = 20
 CELEBRATE_SECONDS = 2.4
 THINK_TTL = 90 * 60        # a "thinking" session older than this reads as resting
 SESSION_TTL = 12 * 3600    # forget sessions entirely after this
-SLEEP_START, SLEEP_END = 23, 7
+SLEEP_START, SLEEP_END = 23, 7   # defaults; config "sleep": [start, end]
 EVENT_ENERGY = {"ripple": 0.10, "wave": 0.20, "flash": 0.25}
 
 # Outbound event stream. A subscriber that stops reading loses events rather
@@ -219,6 +220,9 @@ class State:
         self.qr_matrix = None       # 15x15 bool rows
         self.costume = "none"       # Clawdrobe id (cmd costume)
         self.marquee = ""           # scrolling message (cmd marquee)
+        # bedtime, config "sleep": [start, end] — night owls exist (see: this
+        # project's entire commit history)
+        self.sleep_start, self.sleep_end = SLEEP_START, SLEEP_END
 
     def prune(self, now):
         for sid in list(self.sessions):
@@ -241,8 +245,8 @@ class State:
                 return self.manual
             if any(s[1] == "thinking" for s in self.sessions.values()):
                 return "thinking"
-            hour = time.localtime(now).tm_hour
-            if hour >= SLEEP_START or hour < SLEEP_END:
+            if in_sleep_window(time.localtime(now).tm_hour,
+                               self.sleep_start, self.sleep_end):
                 return "sleep"
             return "awake"
 
@@ -1433,6 +1437,36 @@ def load_config():
         return {}
 
 
+def in_sleep_window(hour, start, end):
+    """Is `hour` inside [start, end)? Handles the wrap around midnight.
+
+    Two shapes, and the second is the one that breaks naive code:
+      23 → 7  wraps midnight: asleep if hour >= 23 OR hour < 7
+       1 → 7  doesn't wrap:   asleep if 1 <= hour < 7  (a dawn nap)
+    start == end means never sleep — an always-awake Clawd for a demo table.
+    """
+    if start == end:
+        return False
+    if start > end:                       # wraps midnight (the common case)
+        return hour >= start or hour < end
+    return start <= hour < end            # same-day window
+
+
+def parse_sleep_window(value, default=(SLEEP_START, SLEEP_END)):
+    """Read config's `"sleep": [23, 7]`, refusing anything that isn't two
+    real hours. Bad config keeps the default rather than crashing the daemon:
+    an owner who fat-fingers a number should get their old bedtime back, not a
+    dead creature and a traceback in a journal they've never read.
+    """
+    try:
+        start, end = (int(v) for v in value)
+    except (TypeError, ValueError):
+        return default
+    if not (0 <= start <= 23 and 0 <= end <= 23):
+        return default
+    return start, end
+
+
 def battery_percent(raw):
     """blocksd's raw 5-bit battery field (0-31) → a real percentage."""
     if raw is None:
@@ -1930,6 +1964,7 @@ def main():
     state.player = Player()
     state.hum_enabled = bool(cfg.get("thinking_hum", False))
     state.jingle_on_celebrate = bool(cfg.get("jingle_on_celebrate", True))
+    state.sleep_start, state.sleep_end = parse_sleep_window(cfg.get("sleep"))
     if cfg.get("size") in ("full", "mini"):
         state.size = cfg["size"]
     state.matrix_fanout = bool(cfg.get("matrix_fanout", False))

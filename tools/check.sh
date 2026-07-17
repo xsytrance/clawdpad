@@ -51,6 +51,12 @@ s = importlib.util.spec_from_file_location("cp", "clawdpadd.py")
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 assert sum(1 for v in m.frame_awake(1.0) if v > 8) > 0, "frame_awake is blank"
 assert m.battery_percent(31) == 100, "battery units regressed"
+w, p = m.in_sleep_window, m.parse_sleep_window
+assert w(23, 23, 7) and w(2, 23, 7) and not w(7, 23, 7), "bedtime wraps midnight"
+assert w(3, 1, 7) and not w(8, 1, 7), "same-day window"
+assert not w(4, 0, 0), "start == end means never sleep"
+assert p(None) == (23, 7) and p([25, 7]) == (23, 7), "bad config keeps default"
+assert p([1, 9]) == (1, 9) and p(["3", "9"]) == (3, 9), "good config is read"
 '
 step "costumes.py imports + dresses" "$PY" -c '
 import costumes

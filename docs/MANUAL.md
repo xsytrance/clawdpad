@@ -206,6 +206,7 @@ QR / dance), and **THE CLAWDROBE** — a costume shelf.
 | `jingle_on_celebrate` | true | auto-jingle when tasks land |
 | `thinking_hum` | false | ambient pad while thinking |
 | `size` | "full" | boot size |
+| `sleep` | `[23, 7]` | bedtime `[start, end]`, 24h local. Wraps midnight (`[23, 7]`) or not (`[1, 7]`, a dawn nap). `[0, 0]` = never sleeps, for a demo table. Nonsense keeps the default rather than killing the daemon. |
 
 ## 9. The soul (optional dazzler link)
 

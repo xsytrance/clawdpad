@@ -101,6 +101,7 @@ never break):
 {
   "jingle_on_celebrate": true,
   "thinking_hum": false,
+  "sleep": [23, 7],
   "http_port": 8137,
   "token": "<random secret>",
   "ntfy_topic": "clawdpad-<random>"

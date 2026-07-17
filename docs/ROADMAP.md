@@ -44,8 +44,12 @@ Recommended next, in order:
    battery field is 5 bits, so `state.block["battery"]` was a raw 0-31 printed
    with a `%` — a full block read "31%" and there was no threshold to write
    against. Fixed (`battery_percent()`); see docs/MACBOOK.md Phase 3.
-4. **Config for the sleep window** — `"sleep": [23, 7]` in config.json;
-   night-owl owners exist (see: this project's entire commit history).
+4. ~~**Config for the sleep window**~~ — ✅ **shipped 2026-07-17.**
+   `"sleep": [23, 7]` in config.json. Wraps midnight or doesn't (`[1, 7]` is a
+   dawn nap); `[0, 0]` never sleeps, which is the demo-table setting. Bad config
+   keeps the default instead of killing the daemon — fat-finger a number and you
+   get your old bedtime back, not a dead creature and a traceback in a journal
+   you've never read.
 5. **Micro-behaviors** — rare idle moments so he never feels looped: a
    stretch (arms up + tall body) every ~10 min, a long look left then right,
    sitting down (body drops 2px, legs tucked) after an hour of idle. Keep
