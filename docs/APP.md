@@ -169,6 +169,43 @@ restart is him waking up new. Body language, not a progress bar. The daemon
 gets the same news over the event stream, so the block tells you even when
 your phone's in your pocket.
 
+## Distribution — where the APK lives (and where it doesn't)
+
+*Written 2026-07-17, when Rod asked to put the APK in the repo. There wasn't
+one yet — no app source exists on any machine — so this is the decision made
+in advance, while it's cheap.*
+
+**The APK never goes in git.** Not this repo, not `clawdpad-app`. Git keeps
+every binary forever: a 50 MB APK committed once is 50 MB in every clone of a
+Python repo whose whole pitch is that a stranger can audit it in one sitting,
+and every rebuild adds another copy. There is no undo short of rewriting
+history. This is not a style preference — it's the one packaging mistake that
+can't be walked back.
+
+**It goes in a GitHub Release**, attached as an asset on a tag. Free, built for
+exactly this, doesn't touch the tree, and gives the updater a stable URL to
+fetch. `.gitignore` should carry `*.apk` / `*.aab` from the app repo's first
+commit, before anyone can do it by accident.
+
+The updater's manifest — served from a release asset, or from the daemon at
+`GET /app/latest` (see Updates above):
+
+```json
+{
+  "version": "1.2.0",
+  "runtime_version": "1",
+  "url": "https://github.com/xsytrance/clawdpad-app/releases/download/v1.2.0/clawdpad-1.2.0.apk",
+  "sha256": "…",
+  "min_daemon_api": 3,
+  "notes": "Battle mode: Bug · Ship · Test"
+}
+```
+
+`sha256` is not optional: sideloading already asks the user to click through
+Android's "install unknown apps" warning, and an unverified download over a
+URL is the one place this project could actually hurt someone. Check the hash
+before the install intent, and fail loudly.
+
 ## Field notes — first live Android host session (2026-07-15, 7-8am)
 
 Built v0.1 as a *player of precomputed SysEx* (tools/make_app_stream.py
