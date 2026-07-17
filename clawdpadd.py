@@ -38,9 +38,23 @@ Command protocol: one JSON object per line, one JSON reply per line.
   {"cmd": "names"}                                    # glasses wear name tags
   {"cmd": "clear"}                                    # drop notify + manual mode
   {"cmd": "status"}
+  {"cmd": "subscribe", "events": ["tap", "ack"]}      # watch him (see below)
+
+Watching Clawd — the outbound event stream:
+  {"cmd": "subscribe"} replies with the usual status envelope, then the
+  connection becomes a one-way NDJSON stream of what he does. Omit "events"
+  for all of them. Kinds: notify · ack · tap · double-tap · triple-tap ·
+  touch · session · ping (keepalive).
+
+  The loop that matters: you `say` something (he holds it, waving) and the
+  matching `ack` fires the moment someone taps the glass — that's how an
+  integration learns its thing was seen. A subscriber that stops reading
+  drops events; it never stalls the render loop. Clawd keeps breathing no
+  matter what an integration does.
 
 Remote surfaces (optional; enabled by ~/.config/clawdpad/config.json):
   HTTP  POST / with `Authorization: Bearer <token>`, GET /status
+        GET /events[?events=tap,ack]  — the same stream, as SSE
   ntfy  publish JSON commands (with a "token" field) to the secret topic
 
 Music is synthesized in-process (pure-stdlib additive bell voice -> WAV
@@ -59,6 +73,7 @@ import http.server
 import json
 import math
 import os
+import queue
 import random
 import shutil
 import socket
@@ -66,6 +81,7 @@ import struct
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 import wave
 
@@ -84,6 +100,11 @@ THINK_TTL = 90 * 60        # a "thinking" session older than this reads as resti
 SESSION_TTL = 12 * 3600    # forget sessions entirely after this
 SLEEP_START, SLEEP_END = 23, 7
 EVENT_ENERGY = {"ripple": 0.10, "wave": 0.20, "flash": 0.25}
+
+# Outbound event stream. A subscriber that stops reading loses events rather
+# than backing up into the render loop — Clawd keeps breathing regardless.
+EVENT_QUEUE_MAX = 256
+EVENT_PING_SECONDS = 20     # keepalive, and how we notice a dead peer
 ENERGY_TAU = 25.0          # seconds for work-energy to decay to 1/e
 TAP_MAX_SECONDS = 0.35     # touch shorter than this is a tap, longer is petting
 DOUBLE_TAP_WINDOW = 0.6    # two taps inside this = double-tap
@@ -112,6 +133,17 @@ CLAWD_EYES = ((4, 5), (10, 5))                   # top px of each 1x2 eye hole
 # Small enough to roam the glass like a room — and for duet scenes where
 # two of them need space to interact.
 MINI_W, MINI_H = 5, 5   # body + legs footprint (arms poke 1px each side)
+
+# The BLOCKS protocol's battery field is 5 bits, so blocksd's "battery_level"
+# is a raw 0-31 — NOT a percentage. We printed it with a '%' until 2026-07-17
+# and a fully charged block read as "battery 31%", which reads as nearly dead.
+BATTERY_RAW_MAX = 31
+
+# Battery as body language, not a readout (ROADMAP Basic #3). A number on the
+# glass would make him a gadget; a tired creature is still a creature.
+BATTERY_LOW = 20        # % — below this he starts winding down
+BATTERY_TIRED_PACE = 0.55   # slowest pacing multiplier, at 0%
+BATTERY_TIRED_DIM = 0.72    # dimmest he gets, at 0%
 
 # One soul, two bodies: Clawd's pet state is OWNED by dazzler (petd.py writes
 # it; a systemd timer ticks it). This body only mirrors it — never writes.
@@ -147,6 +179,11 @@ class State:
 
     def __init__(self):
         self.lock = threading.Lock()
+        # Subscribers get their OWN lock. self.lock is a plain (non-reentrant)
+        # Lock and emit() is called from inside locked sections like
+        # touch_end(); sharing it would deadlock the touch loop instantly.
+        self.subs = []              # [(queue, kinds|None)]
+        self.subs_lock = threading.Lock()
         self.sessions = {}          # sid -> [project, "thinking"|"resting", epoch]
         self.manual = None          # explicit `mode` override
         self.notify_until = 0.0
@@ -212,6 +249,46 @@ class State:
     def celebrate(self, now):
         self.oneshot_until = now + CELEBRATE_SECONDS
 
+    # ── Watching Clawd (the outbound event stream) ───────────────────────
+
+    def emit(self, kind, /, **fields):
+        """Tell subscribers something happened. Never blocks, never raises.
+
+        `kind` is positional-only (the `/`) so an event can carry its own
+        "kind" field — session events do exactly that.
+
+        This is the primitive Level 3 needs: until 2026-07-17 the daemon was
+        strictly request/response and the only push anywhere was ntfy's 1 Hz
+        coalesced state echo on three fields — so a tap, the single most
+        important thing Clawd can tell you, never left the process. No
+        tap-to-acknowledge callbacks, no gesture commands, no plugin that
+        reacts to him.
+
+        Safe to call while holding self.lock (see subs_lock). A slow or wedged
+        subscriber drops events rather than stalling the render loop — Clawd
+        keeps breathing no matter what an integration does.
+        """
+        ev = {"event": kind, "at": round(time.time(), 3), **fields}
+        with self.subs_lock:
+            subs = list(self.subs)
+        for q, kinds in subs:
+            if kinds and kind not in kinds:
+                continue
+            try:
+                q.put_nowait(ev)
+            except queue.Full:
+                pass
+
+    def subscribe(self, kinds):
+        q = queue.Queue(maxsize=EVENT_QUEUE_MAX)
+        with self.subs_lock:
+            self.subs.append((q, kinds))
+        return q
+
+    def unsubscribe(self, q):
+        with self.subs_lock:
+            self.subs = [(qq, k) for qq, k in self.subs if qq is not q]
+
     def matrix_relay(self, msg):
         """Mirror a remote command onto the dazzler matrix via claudectl."""
         cmd = msg.get("cmd")
@@ -261,6 +338,7 @@ class State:
                     self.sessions.pop(sid, None)
                 else:
                     return {"ok": False, "error": f"unknown kind: {kind}"}
+                self.emit("session", kind=kind, sid=sid, project=project)
             elif cmd == "event":
                 # tool activity: no visual of its own — it feeds the work
                 # energy that sets Clawd's pacing speed while thinking
@@ -285,6 +363,10 @@ class State:
                 if self.player and now - self.last_say_chime > 10:
                     self.last_say_chime = now
                     self.player.play("chime")
+                # raised → he's holding something for you. The matching "ack"
+                # fires when you tap; that pair is the whole integration loop.
+                self.emit("notify", text=self.notify_text,
+                          seconds=float(msg.get("seconds", 30)))
             elif cmd == "anim":
                 arg = str(msg.get("arg", "")).lower()
                 if arg == "reunion":
@@ -381,6 +463,10 @@ class State:
                 self.qr_until = 0.0
             elif cmd in ("status", "ping"):
                 pass
+            elif cmd == "subscribe":
+                # handled by handle_client — the connection stops being
+                # request/response and becomes a one-way NDJSON stream
+                pass
             else:
                 return {"ok": False, "error": f"unknown cmd: {cmd}"}
         home_serial = self.dev_serials.get(self.home, "")
@@ -421,10 +507,14 @@ class State:
         """Returns "ack" if this tap acknowledged a notify, else None."""
         with self.lock:
             if now < self.notify_until:
+                text = self.notify_text
                 self.notify_until = 0.0
                 self.notify_text = ""
-                return "ack"
+                self.emit("ack", text=text)   # THE event for integrations:
+                return "ack"                  # "he saw it, you can mark it read"
             self.touch = [x, y, z, now]
+        self.emit("touch", action="start", x=round(x, 3), y=round(y, 3),
+                  z=round(z, 3))
         return None
 
     def touch_move(self, x, y, z):
@@ -449,14 +539,17 @@ class State:
                 self.notice = None
                 self.oneshot_until = 0.0  # cancel the double-tap jump
                 self.size = "mini" if self.size == "full" else "full"
+                self.emit("triple-tap", size=self.size)
                 return f"resize:{self.size}"
             if len(self.taps) == 2:
                 self.notice = None
                 self.celebrate(now)
+                self.emit("double-tap")
                 return "jump"
             # single tap: he looks at where you tapped for a moment
             look = max(-1, min(1, round((held[0] * (W - 1) - 7) * 0.2)))
             self.notice = (look, now + NOTICE_SECONDS)
+            self.emit("tap", x=round(held[0], 3), y=round(held[1], 3))
         return None
 
     # ── Two blocks, one Clawd ────────────────────────────────────────────
@@ -595,6 +688,47 @@ class State:
         with self.lock:
             mood = self.pet["mood"] if self.pet else "content"
         return PET_VIGOR.get(mood, 1.0)
+
+    # ── Battery as body language ─────────────────────────────────────────
+
+    def _battery(self):
+        with self.lock:
+            return self.block.get("battery"), bool(self.block.get("charging"))
+
+    def battery_pace(self):
+        """Pacing multiplier. A low block paces slower — he's tired, not broken.
+
+        Rides the same phase accumulator as work energy, so it composes: a
+        busy Clawd on a flat battery still hurries, just less.
+        """
+        pct, charging = self._battery()
+        if pct is None or charging or pct > BATTERY_LOW:
+            return 1.0
+        k = max(0.0, min(1.0, pct / BATTERY_LOW))   # 0% -> 0, 20% -> 1
+        return BATTERY_TIRED_PACE + (1.0 - BATTERY_TIRED_PACE) * k
+
+    def battery_vigor(self, t):
+        """Brightness multiplier: guttering when flat, a warm pulse when fed.
+
+        Deliberately shaped like pet_vigor() so the two just multiply — a
+        hungry Clawd on a dying block is dimmer than either alone, which is
+        exactly right.
+        """
+        pct, charging = self._battery()
+        if charging:
+            # contented: a slow warm breath, like sleeping off a big meal
+            return 1.0 + 0.06 * math.sin(t * 2 * math.pi / 7.0)
+        if pct is None or pct > BATTERY_LOW:
+            return 1.0
+        k = max(0.0, min(1.0, pct / BATTERY_LOW))
+        return BATTERY_TIRED_DIM + (1.0 - BATTERY_TIRED_DIM) * k
+
+    def battery_tired(self):
+        """0..1 — how heavy his blinks are. 0 unless the block is low."""
+        pct, charging = self._battery()
+        if pct is None or charging or pct > BATTERY_LOW:
+            return 0.0
+        return 1.0 - max(0.0, min(1.0, pct / BATTERY_LOW))
 
 
 # --------------------------------------------------------------------- music
@@ -884,14 +1018,15 @@ def _touch_pose(touch):
     return dx, dy, look, tz
 
 
-def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0):
+def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0):
     """Clawd awake: breathes, bobs, paces a little, blinks, glances around.
 
     Petting leans him toward your finger with pressure glow and tracking
     eyes; a single tap (`notice`) holds his gaze for a moment. Vigor
     mirrors hunger — a hungry Clawd burns low, a starving one gutters
     (feed him: ~/dazzler/feed/). `xoff` shifts his whole world sideways —
-    linked blocks render one wide room as per-glass windows.
+    linked blocks render one wide room as per-glass windows. `tired` (0..1)
+    is a flat battery: his blinks get long and yawning.
     """
     breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
     if touch is not None:
@@ -905,7 +1040,8 @@ def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0):
     brightness *= vigor
     if vigor <= PET_VIGOR["starving"]:
         brightness *= 0.88 + 0.12 * math.sin(t * 13.7)
-    blink = (t % 4.3) < 0.13
+    # a tired Clawd blinks slow and long — the eyes are where fatigue reads
+    blink = (t % 4.3) < (0.13 + 0.30 * tired)
     return _clawd(brightness, dx + xoff, dy,
                   "closed" if blink else "open", look)
 
@@ -1098,7 +1234,8 @@ def build_frame(mood, t, phase, state, touch):
         marquee, costume = state.marquee, state.costume
     if costume == "none" and state.away_flair and costumes is not None:
         costume = "scarf"   # he's out visiting; he dresses for the trip
-    # marquee + costumes take over the calm moods (not qr/notify/celebrate)
+    # The marquee takes over the calm moods only — if Clawd needs you, you see
+    # him wave, not a message. (qr/notify/celebrate are never hidden.)
     if marquee and mood in ("awake", "sleep", "thinking"):
         return _marquee_frame(marquee, t)
     if costume != "none" and costumes is not None and \
@@ -1110,6 +1247,23 @@ def build_frame(mood, t, phase, state, touch):
         blink = (t % 4.3) < 0.13
         return bytearray(costumes.dressed(costume,
             breath * state.pet_vigor(), dx, dy, not blink, look, t))
+    # He keeps his outfit on while waving and jumping. Until 2026-07-17
+    # costumes.dressed() had no arm offsets, so these two moods had to strip
+    # him — a costumed Clawd could wave in the browser but not on the desk.
+    if costume != "none" and costumes is not None and mood == "notify":
+        pulse = (0.78 + 0.22 * math.sin(t * 2 * math.pi * 1.4)) \
+            * max(0.7, state.pet_vigor())
+        wave_up = (t * 2.4) % 1.0 < 0.5
+        blink = (t % 4.3) < 0.13
+        return bytearray(costumes.dressed(
+            costume, pulse, 0, 0, not blink, 0, t,
+            arm_r_dy=-2 if wave_up else -1))
+    if costume != "none" and costumes is not None and mood == "celebrate":
+        rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
+        bounce = abs(math.sin((rel % CELEBRATE_SECONDS) * math.pi / 0.6))
+        return bytearray(costumes.dressed(
+            costume, 1.0, 0, -round(2 * bounce), True, 0, t,
+            arm_l_dy=-2, arm_r_dy=-2))
     if mood == "qr":
         buf = bytearray(W * H * 3)
         with state.lock:
@@ -1129,12 +1283,13 @@ def build_frame(mood, t, phase, state, touch):
     if mood == "sleep":
         return frame_sleep(t, touch)
     if mood == "notify":
-        return frame_notify(t, state.pet_vigor())
+        return frame_notify(t, state.pet_vigor() * state.battery_vigor(t))
     if mood == "celebrate":
         with state.lock:
             rel = CELEBRATE_SECONDS - (state.oneshot_until - now)
-        return frame_celebrate(max(0.0, rel))
-    return frame_awake(t, touch, state.pet_vigor(), notice)
+        return frame_celebrate(max(0.0, rel))   # he always jumps at full tilt
+    return frame_awake(t, touch, state.pet_vigor() * state.battery_vigor(t),
+                       notice, tired=state.battery_tired())
 
 
 def build_frames(mood, t, phase, state, touch, mono):
@@ -1229,6 +1384,13 @@ def load_config():
         return {}
 
 
+def battery_percent(raw):
+    """blocksd's raw 5-bit battery field (0-31) → a real percentage."""
+    if raw is None:
+        return None
+    return max(0, min(100, round(raw / BATTERY_RAW_MAX * 100)))
+
+
 def discover_blocks(sock):
     """All LED-grid devices blocksd can see — DNA-snapped neighbors and
     extra USB blocks alike. Every one of them gets a Clawd."""
@@ -1296,7 +1458,10 @@ def render_loop(state):
                 with state.lock:
                     state.block = {"connected": True,
                                    "serial": master["serial"],
-                                   "battery": master.get("battery_level"),
+                                   "battery": battery_percent(
+                                       master.get("battery_level")),
+                                   "charging": bool(
+                                       master.get("battery_charging")),
                                    "blocks": len(devs)}
                     state.devices = [d["uid"] for d in devs]
                     state.dev_serials = {d["uid"]: d["serial"]
@@ -1313,7 +1478,7 @@ def render_loop(state):
                 log("streaming to "
                     + ", ".join(f"{state.name_of(d['uid'])}"
                                 f" ({d['serial']})" for d in devs)
-                    + f" (battery {master.get('battery_level')}%)")
+                    + f" (battery {battery_percent(master.get('battery_level'))}%)")
                 headers = {d["uid"]: struct.pack("<BBQ", 0xBD, 0x01,
                                                  d["uid"])
                            for d in devs}
@@ -1327,7 +1492,9 @@ def render_loop(state):
                     mono = time.monotonic()
                     dt, last = mono - last, mono
                     energy = state.tick(dt)
-                    phase += dt * (2.5 + 4.5 * energy)
+                    # work speeds him up; a flat battery slows him down —
+                    # they compose on the one accumulator (never t * speed)
+                    phase += dt * (2.5 + 4.5 * energy) * state.battery_pace()
                     touch = state.touch_snapshot()
                     game_on = state.game_step(mono)
                     if not game_on and len(devs) > 1 and mood == "awake" \
@@ -1487,8 +1654,39 @@ def handle_client(state, conn):
                     else:
                         reply = state.apply(msg, time.time())
                     conn.sendall(json.dumps(reply).encode() + b"\n")
+                    if reply.get("ok") and msg.get("cmd") == "subscribe":
+                        stream_events(state, conn, msg)
+                        return
         except (OSError, TimeoutError):
             return
+
+
+def stream_events(state, conn, msg):
+    """This connection is now a one-way tap on Clawd's life.
+
+    `{"cmd": "subscribe"}` → every event, or pass `{"events": ["tap", "ack"]}`
+    to filter. One JSON object per line, forever, until you hang up. This is
+    what a plugin listens to; it never gets to draw on the glass.
+    """
+    kinds = msg.get("events")
+    kinds = set(kinds) if isinstance(kinds, list) and kinds else None
+    q = state.subscribe(kinds)
+    log(f"subscriber attached ({'all events' if not kinds else sorted(kinds)})")
+    conn.settimeout(None)   # a quiet Clawd is not a dead connection
+    try:
+        while True:
+            try:
+                ev = q.get(timeout=EVENT_PING_SECONDS)
+            except queue.Empty:
+                # keepalive: also how we discover the peer went away
+                conn.sendall(b'{"event":"ping"}\n')
+                continue
+            conn.sendall(json.dumps(ev).encode() + b"\n")
+    except (OSError, TimeoutError):
+        pass
+    finally:
+        state.unsubscribe(q)
+        log("subscriber detached")
 
 
 class RemoteHandler(http.server.BaseHTTPRequestHandler):
@@ -1540,11 +1738,56 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
         log(f"http command: {msg.get('cmd')}")
 
     def do_GET(self):
-        if self.path != "/status":
+        path = self.path.split("?")[0]
+        if path == "/events":
+            return self._events()
+        if path != "/status":
             return self._reply(404, {"ok": False, "error": "not found"})
         if not self._authed():
             return self._reply(403, {"ok": False, "error": "bad token"})
         self._reply(200, self.state.apply({"cmd": "status"}, time.time()))
+
+    def _events(self):
+        """Server-Sent Events — the socket's `subscribe`, over HTTP.
+
+        `GET /events` (optionally `?events=tap,ack`) streams Clawd's life to
+        anything that can hold a connection open: a browser tab, a plugin on
+        another box, a Shortcut. Same events, same shape, same guarantee — a
+        subscriber that stops reading is dropped, never blocks him.
+        """
+        if not self._authed():
+            return self._reply(403, {"ok": False, "error": "bad token"})
+        kinds = None
+        if "?" in self.path:
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+            wanted = [k for v in qs.get("events", []) for k in v.split(",") if k]
+            kinds = set(wanted) or None
+        q = self.state.subscribe(kinds)
+        log(f"SSE subscriber attached ({'all' if not kinds else sorted(kinds)})")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(b": hello\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    ev = q.get(timeout=EVENT_PING_SECONDS)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")   # comment = SSE keepalive
+                else:
+                    self.wfile.write(
+                        f"event: {ev['event']}\ndata: {json.dumps(ev)}\n\n"
+                        .encode())
+                self.wfile.flush()
+        except (OSError, BrokenPipeError, ValueError):
+            pass
+        finally:
+            self.state.unsubscribe(q)
+            log("SSE subscriber detached")
 
     def log_message(self, *args):
         pass  # journal noise; commands are logged explicitly above

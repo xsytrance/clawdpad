@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
-"""costumes — the Clawdrobe on the desk daemon. Pixel art mirrored from
-clawd-core.js (the ASCII-verified source of truth). Props layer over the
-Clawd body; skins replace it. All return 675-byte RGB888 frames."""
+"""costumes — the Clawdrobe on the desk daemon.
+
+MIRROR, NOT SOURCE. web/clawd-core.js is canonical for Clawd's art and
+poses: author there first, then mirror the change here. Never the reverse.
+(Until 2026-07-17 this file called clawd-core.js the source of truth while
+clawd-core.js called clawdpadd.py the source of truth — each named the
+other, so there was no reference to diff against.)
+
+Props layer over the Clawd body; skins replace it. All return 675-byte
+RGB888 frames. Verify headlessly before shipping — see
+docs/MAKING-COSTUMES.md and `node tools/webpreview.mjs`."""
 
 import math
 
@@ -32,14 +40,22 @@ def _p(buf, x, y, r, g, b):
         buf[i + 2] = max(0, min(255, int(b)))
 
 
-def _body(br, dx, dy, eyes, look, tint=CORAL):
+def _body(br, dx, dy, eyes, look, tint=CORAL, arm_l_dy=0, arm_r_dy=0):
+    """The Clawd body, tintable. arm_*_dy raise (negative) or droop an arm.
+
+    Mirrors clawd-core.js `body()`. The arm offsets landed 2026-07-17: without
+    them `dressed()` could not express a raised arm, so clawdpadd.py had to
+    exclude notify/celebrate from the costume path — meaning a costumed Clawd
+    could wave and jump in the browser but not on the desk.
+    """
     buf = bytearray(675)
     r, g, b = tint[0] * br, tint[1] * br, tint[2] * br
-    def rect(x0, y0, x1, y1):
-        for y in range(y0 + dy, y1 + dy):
+    def rect(x0, y0, x1, y1, oy=0):
+        for y in range(y0 + dy + oy, y1 + dy + oy):
             for x in range(x0 + dx, x1 + dx):
                 _p(buf, x, y, r, g, b)
-    rect(2, 3, 13, 11); rect(0, 7, 2, 9); rect(13, 7, 15, 9)
+    rect(2, 3, 13, 11)
+    rect(0, 7, 2, 9, arm_l_dy); rect(13, 7, 15, 9, arm_r_dy)
     for lx in (3, 5, 9, 11):
         rect(lx, 11, lx + 1, 13)
     for ex in (4, 10):
@@ -257,7 +273,10 @@ def _chomper(br, dx, dy, t, facing_right):
     return buf
 
 
-def dressed(cid, br, dx, dy, eyes, look, t):
+def dressed(cid, br, dx, dy, eyes, look, t, arm_l_dy=0, arm_r_dy=0):
+    """Dress Clawd. Skins ignore the arm offsets — they're whole other bodies
+    with their own anatomy; props ride on top of the arm-raised body. Same
+    rule as clawd-core.js `dressed()`."""
     if cid == "ghost": buf = _ghost(br, dx, dy, eyes, look, t)
     elif cid == "puff": buf = _puff(br, dx, dy, eyes, look)
     elif cid == "chomper": buf = _chomper(br, dx, dy, t, math.sin(t*0.13) >= 0)
@@ -268,7 +287,7 @@ def dressed(cid, br, dx, dy, eyes, look, t):
     elif cid == "pumpkin": buf = _pumpkin(br, dx, dy, eyes)
     elif cid == "star": buf = _star(br, dx, dy, eyes)
     elif cid == "bee": buf = _bee(br, dx, dy, eyes, t)
-    else: buf = _body(br, dx, dy, eyes, look)
+    else: buf = _body(br, dx, dy, eyes, look, CORAL, arm_l_dy, arm_r_dy)
     if cid != "none" and cid not in SKINS:
         _prop(cid, buf, dx, dy, look, t)
     return buf
