@@ -50,10 +50,18 @@ Recommended next, in order:
    keeps the default instead of killing the daemon — fat-finger a number and you
    get your old bedtime back, not a dead creature and a traceback in a journal
    you've never read.
-5. **Micro-behaviors** — rare idle moments so he never feels looped: a
-   stretch (arms up + tall body) every ~10 min, a long look left then right,
-   sitting down (body drops 2px, legs tucked) after an hour of idle. Keep
-   them rare — scarcity is what makes them alive.
+5. **Micro-behaviors** — 🟡 **half shipped 2026-07-17.** The stretch (arms
+   over his head, up on his toes, ~1.6s every ~10 min) and the long look (left,
+   hold, right, ~2.6s every ~6 min) are in, on both bodies, parity-checked at
+   times inside their windows — an untested rare behaviour is an unshipped one.
+   Both are pure functions of the clock (`idle_window`/`Clawd.idleWindow`), no
+   state and no randomness, which is what lets the desk and the browser agree
+   on when he stretches. Periods are coprime-ish (607, 371) so they never lock
+   into a rhythm, since a rhythm is the loop this exists to break.
+   **Still to do: sitting down after an hour idle.** It's the only one of the
+   three that needs *state* — "how long since anything happened" — and that
+   doesn't belong in a pure pose. It wants an idle clock on `State` passed in
+   like `tired`, which is a design decision, not a leftover.
 6. **Pinch to resize** — triple-tap toggles full/mini today; the block is
    multitouch, so a two-finger pinch (shrink) / spread (grow) gesture is
    the natural upgrade. Needs per-index touch tracking.

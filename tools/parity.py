@@ -50,6 +50,13 @@ CASES = [
     ("awake t=0.3",        "m.frame_awake(0.3)",            "Clawd.awake(0.3)"),
     ("awake t=2.7",        "m.frame_awake(2.7)",            "Clawd.awake(2.7)"),
     ("awake t=11.0",       "m.frame_awake(11.0)",           "Clawd.awake(11.0)"),
+    # The micro-behaviours: rare by design, so no ordinary t reaches them and
+    # every case above stays green whatever they do. These land inside the
+    # windows on purpose — an untested rare behaviour is an unshipped one.
+    ("awake stretch t=600.8", "m.frame_awake(600.8)",       "Clawd.awake(600.8)"),
+    ("awake stretch t=601.4", "m.frame_awake(601.4)",       "Clawd.awake(601.4)"),
+    ("awake look-L t=300.5",  "m.frame_awake(300.5)",       "Clawd.awake(300.5)"),
+    ("awake look-R t=302.0",  "m.frame_awake(302.0)",       "Clawd.awake(302.0)"),
     ("sleep t=1.0",        "m.frame_sleep(1.0)",            "Clawd.sleep(1.0)"),
     ("sleep t=9.8 (peek)", "m.frame_sleep(9.8)",            "Clawd.sleep(9.8)"),
     ("thinking ph=2 t=.3", "m.frame_thinking(2.0, 0.3)",    "Clawd.thinking(2.0, 0.3)"),

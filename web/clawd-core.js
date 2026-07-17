@@ -732,13 +732,43 @@ const Clawd = {
     return buf;
   },
 
+  /** Rare idle punctuation, so he never reads as a loop.
+   *
+   *  Returns 0..1 through a `dur`-long window that opens every `period`
+   *  seconds at `at`. Pure: a function of the clock, no state, no randomness —
+   *  which is what lets both bodies agree on when he stretches.
+   *
+   *  The periods are deliberately coprime-ish (607, 371) so two behaviours
+   *  never lock into a rhythm; a rhythm is exactly the loop we're avoiding.
+   *  **Scarcity is the whole feature.** Make these frequent and he stops being
+   *  a creature and starts being an animation. */
+  idleWindow(t, period, at, dur) {
+    const p = t % period;
+    return (p >= at && p < at + dur) ? (p - at) / dur : 0;
+  },
+
   awake(t) {
     const breath = 0.72 + 0.28 * Math.sin(t * 2 * Math.PI / 6.5);
-    const dx = Math.round(1.5 * Math.sin(t * 0.13));
-    const dy = Math.round(0.5 * Math.sin(t * 2 * Math.PI / 6.5));
-    const look = Math.round(0.9 * Math.sin(t * 0.31));
+    let dx = Math.round(1.5 * Math.sin(t * 0.13));
+    let dy = Math.round(0.5 * Math.sin(t * 2 * Math.PI / 6.5));
+    let look = Math.round(0.9 * Math.sin(t * 0.31));
+    let armL = 0, armR = 0;
     const blink = (t % 4.3) < 0.13;
-    return this.dressed(breath, dx, dy, !blink, look, t);
+
+    // a stretch every ~10 min: up on the toes, arms over his head, ~1.6s
+    const s = this.idleWindow(t, 607, 600, 1.6);
+    if (s > 0) {
+      const reach = Math.sin(s * Math.PI);        // ease up and back down
+      const up = -Math.round(2 * reach);
+      armL = up; armR = up;
+      dy = -Math.round(reach);                    // rises with the reach
+    } else {
+      // a long look: left, hold, then right — ~2.6s every ~6 min. He only does
+      // this when he isn't stretching; nobody rubbernecks mid-yawn.
+      const g = this.idleWindow(t, 371, 300, 2.6);
+      if (g > 0) look = g < 0.5 ? -1 : 1;
+    }
+    return this.dressed(breath, dx, dy, !blink, look, t, armL, armR);
   },
 
   /** The glass IS a Micro QR: M3 is exactly 15x15 modules and the dark bezel

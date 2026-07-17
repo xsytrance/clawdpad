@@ -1065,6 +1065,7 @@ def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0,
     is a flat battery: his blinks get long and yawning.
     """
     breath = 0.72 + 0.28 * math.sin(t * 2 * math.pi / 6.5)
+    arm_l = arm_r = 0
     if touch is not None:
         dx, dy, look, tz = _touch_pose(touch)
         brightness = min(1.0, breath + 0.35 * tz)
@@ -1073,13 +1074,26 @@ def frame_awake(t, touch=None, vigor=1.0, notice=None, xoff=0, tired=0.0,
         dy = round(0.5 * math.sin(t * 2 * math.pi / 6.5))
         look = notice if notice is not None else round(0.9 * math.sin(t * 0.31))
         brightness = breath
+        # a stretch every ~10 min: on his toes, arms over his head, ~1.6s
+        s = idle_window(t, 607, 600, 1.6)
+        if s > 0:
+            reach = math.sin(s * math.pi)          # ease up and back down
+            arm_l = arm_r = -round(2 * reach)
+            dy = -round(reach)
+        else:
+            # a long look — left, hold, right — every ~6 min. Never mid-stretch:
+            # nobody rubbernecks in the middle of a yawn.
+            g = idle_window(t, 371, 300, 2.6)
+            if g > 0 and notice is None:
+                look = -1 if g < 0.5 else 1
     brightness *= vigor
     if vigor <= PET_VIGOR["starving"]:
         brightness *= 0.88 + 0.12 * math.sin(t * 13.7)
     # a tired Clawd blinks slow and long — the eyes are where fatigue reads
     blink = (t % 4.3) < (0.13 + 0.30 * tired)
     return _skin(costume, brightness, dx + xoff, dy,
-                 "closed" if blink else "open", look, t)
+                 "closed" if blink else "open", look, t,
+                 arm_l_dy=arm_l, arm_r_dy=arm_r)
 
 
 def frame_thinking(phase, t, touch=None, notice=None, xoff=0, costume=None):
@@ -1435,6 +1449,24 @@ def load_config():
             return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+def idle_window(t, period, at, dur):
+    """Rare idle punctuation, so he never reads as a loop.
+
+    0..1 through a `dur`-long window opening every `period` seconds at `at`;
+    0 outside it. Pure — a function of the clock, no state, no randomness —
+    which is what lets the desk and the browser agree on when he stretches.
+
+    Periods are coprime-ish (607, 371) so two behaviours never lock into a
+    rhythm, since a rhythm is the loop this exists to break. **Scarcity is the
+    feature**: make these frequent and he stops being a creature and starts
+    being an animation.
+
+    Mirrored from web/clawd-core.js Clawd.idleWindow (canonical).
+    """
+    p = t % period
+    return (p - at) / dur if at <= p < at + dur else 0
 
 
 def in_sleep_window(hour, start, end):

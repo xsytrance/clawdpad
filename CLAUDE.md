@@ -155,7 +155,7 @@ full or mini, no browser needed).
 
 **`tools/check.sh` is the whole no-hardware safety net** — golden vectors
 (clawd-core.js speaks bit-identical ROLI to blocksd), cross-body parity
-(`tools/parity.py`: 41 cases, byte-identical on desk and browser), every pose
+(`tools/parity.py`: 45 cases, byte-identical on desk and browser), every pose
 renders, imports clean. Run it before claiming anything works. It found five
 shipped drift bugs the day it was written — and two more the same day that it
 had been *structurally blind to* while reporting green (a costumed Clawd never

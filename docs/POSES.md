@@ -25,7 +25,7 @@ on both and compares bytes. Not "looks right" — identical bytes.
 > exists". Everything below describes the two bodies this harness covers.
 
 ```bash
-.venv/bin/python3 tools/parity.py       # 41/41 identical
+.venv/bin/python3 tools/parity.py       # 45/45 identical
 tools/check.sh                          # parity + golden vectors + the rest
 ```
 

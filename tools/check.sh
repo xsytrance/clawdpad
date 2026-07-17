@@ -32,7 +32,7 @@ echo "conformance — every port must speak bit-identical ROLI"
 step "golden vectors: clawd-core.js vs blocksd" node web/test-golden.mjs
 
 echo "parity — the desk and the browser must draw the same creature"
-step "clawdpadd.py vs clawd-core.js (41 cases, poses × costumes)" \
+step "clawdpadd.py vs clawd-core.js (45 cases, poses × costumes)" \
   "$PY" tools/parity.py
 
 echo "renderers — every pose must draw something"
