@@ -1,15 +1,29 @@
 // Golden-vector validation for clawd-core.js (node web/test-golden.mjs)
+//
+// Proves clawd-core.js produces byte-identical ROLI to blocksd, the reference
+// implementation. Vectors are committed (tools/golden.json, deterministic and
+// seeded), so this needs nothing but node — no Python, no venv, no hardware.
+// Regenerate with: .venv/bin/python3 tools/make_golden_vectors.py
+//
+// This test read /home/xsyprime/clawdpad-app/... until 2026-07-17 — a path on
+// another machine, guarded by a ternary that was always true (URL.pathname
+// always starts with "/" on POSIX), which made the fallback unreachable. It
+// had therefore never run anywhere but one Linux box.
 import { createRequire } from "module";
 import { readFileSync } from "fs";
 const require = createRequire(import.meta.url);
 const { Protocol, BitWriter, PacketBuilder, HeapStreamer } =
   require("./clawd-core.js");
 
-const golden = JSON.parse(readFileSync(
-  new URL("../../clawdpad-app/app/src/test/resources/golden.json",
-    import.meta.url).pathname.startsWith("/") ?
-  "/home/xsyprime/clawdpad-app/app/src/test/resources/golden.json" :
-  "golden.json", "utf8"));
+const GOLDEN = new URL("../tools/golden.json", import.meta.url);
+let golden;
+try {
+  golden = JSON.parse(readFileSync(GOLDEN, "utf8"));
+} catch (e) {
+  console.error(`GOLDEN: cannot read ${GOLDEN.pathname}\n  ${e.message}\n` +
+    "  regenerate: .venv/bin/python3 tools/make_golden_vectors.py");
+  process.exit(2);
+}
 
 const b64 = s => Uint8Array.from(Buffer.from(s, "base64"));
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
