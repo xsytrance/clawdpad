@@ -1,0 +1,200 @@
+From 50046a9ab35456faded43f0cdbf18df39d061d18 Mon Sep 17 00:00:00 2001
+From: Rod Agenor <rod.agenor@gmail.com>
+Date: Thu, 16 Jul 2026 23:37:56 -0400
+Subject: [PATCH] fix(topology): key device groups by port indices, not port
+ name
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CoreMIDI presents every Lightpad Block as "Lightpad BLOCK  Lightpad
+BLOCK" with no disambiguating suffix, so two connected blocks produce
+two MIDI port pairs with byte-identical names. TopologyManager keyed
+_groups/_tasks by pair.name, so the second block's pair matched the
+first's key, the add-guard skipped it, and the block was silently
+dropped — it never got a DeviceGroup and never appeared in discover.
+
+scan_for_blocks() already handled this correctly: its occurrence
+counting returns one pair per block with distinct port indices. Only
+the manager's keying discarded that.
+
+ALSA appends port numbers, making names unique, which is why this
+never surfaced on Linux.
+
+Key on (name, input_port, output_port) instead, and add _label() so
+identically-named groups stay distinguishable in the logs.
+
+Verified on macOS 15 with two Lightpad Block M: before, discover
+reported 1 device; after, both enumerate and stream.
+---
+ src/blocksd/topology/manager.py | 64 +++++++++++++++++++++------------
+ tests/topology/test_manager.py  | 40 +++++++++++++++++++++
+ 2 files changed, 82 insertions(+), 22 deletions(-)
+ create mode 100644 tests/topology/test_manager.py
+
+diff --git a/src/blocksd/topology/manager.py b/src/blocksd/topology/manager.py
+index 284de5c..687ead9 100644
+--- a/src/blocksd/topology/manager.py
++++ b/src/blocksd/topology/manager.py
+@@ -24,6 +24,23 @@ if TYPE_CHECKING:
+ 
+ log = logging.getLogger(__name__)
+ 
++# Group key: port names alone are not unique. CoreMIDI presents every Lightpad
++# as "Lightpad BLOCK  Lightpad BLOCK" with no index suffix, so two blocks
++# collide on name (ALSA appends port numbers, which is why Linux never saw it).
++# The port indices are what actually distinguish them.
++_GroupKey = tuple[str, int, int]
++
++
++def _key(pair: MidiPortPair) -> _GroupKey:
++    return (pair.name, pair.input_port, pair.output_port)
++
++
++def _label(key: _GroupKey) -> str:
++    """Human-readable group id — the port indices are the only thing telling
++    two identically-named blocks apart in the log."""
++    name, in_port, out_port = key
++    return f"{name} (in={in_port}, out={out_port})"
++
+ 
+ class TopologyManager:
+     """Scans for ROLI MIDI devices, creates DeviceGroups, manages lifecycle.
+@@ -34,8 +51,8 @@ class TopologyManager:
+     """
+ 
+     def __init__(self) -> None:
+-        self._groups: dict[str, _GroupEntry] = {}  # port name → entry
+-        self._tasks: dict[str, asyncio.Task[None]] = {}
++        self._groups: dict[_GroupKey, _GroupEntry] = {}  # (name, in, out) → entry
++        self._tasks: dict[_GroupKey, asyncio.Task[None]] = {}
+         self.on_device_added: list[Callable[[DeviceInfo], None]] = []
+         self.on_device_removed: list[Callable[[DeviceInfo], None]] = []
+         self.on_topology_changed: list[Callable[[Topology], None]] = []
+@@ -105,25 +122,27 @@ class TopologyManager:
+             log.exception("MIDI scan failed")
+             return
+ 
+-        detected_names = {pair.name for pair in detected}
++        detected_keys = {_key(pair) for pair in detected}
+ 
+         # Remove groups whose ports disappeared
+-        stale = [name for name in self._groups if name not in detected_names]
+-        for name in stale:
+-            self._remove_group(name)
++        stale = [key for key in self._groups if key not in detected_keys]
++        for key in stale:
++            self._remove_group(key)
+ 
+         # Add groups for newly detected ports
+         for pair in detected:
+-            if pair.name not in self._groups:
++            if _key(pair) not in self._groups:
+                 self._add_group(pair)
+ 
+     def _add_group(self, pair: MidiPortPair) -> None:
+         """Create a DeviceGroup for a newly detected MIDI port pair."""
+         loop = asyncio.get_event_loop()
++        key = _key(pair)
++        label = _label(key)
+         try:
+             conn = open_connection(pair.input_port, pair.output_port, loop, name=pair.name)
+         except Exception:
+-            log.exception("Failed to open MIDI ports for %s", pair.name)
++            log.exception("Failed to open MIDI ports for %s", label)
+             return
+ 
+         group = DeviceGroup(conn)
+@@ -134,28 +153,29 @@ class TopologyManager:
+         group.on_button_event = list(self.on_button_event)
+         group.on_config_changed = list(self.on_config_changed)
+ 
+-        task = asyncio.create_task(group.run(), name=f"group:{pair.name}")
+-        task.add_done_callback(lambda t, n=pair.name: self._on_group_done(n, t))
++        task = asyncio.create_task(group.run(), name=f"group:{label}")
++        task.add_done_callback(lambda t, k=key: self._on_group_done(k, t))
+ 
+-        self._groups[pair.name] = _GroupEntry(group, pair)
+-        self._tasks[pair.name] = task
+-        log.info("Created device group for %s", pair.name)
++        self._groups[key] = _GroupEntry(group, pair)
++        self._tasks[key] = task
++        log.info("Created device group for %s", label)
+ 
+-    def _remove_group(self, name: str) -> None:
++    def _remove_group(self, key: _GroupKey) -> None:
+         """Cancel and clean up a device group."""
+-        if task := self._tasks.pop(name, None):
++        if task := self._tasks.pop(key, None):
+             task.cancel()
+-        self._groups.pop(name, None)
+-        log.info("Removed device group for %s", name)
++        self._groups.pop(key, None)
++        log.info("Removed device group for %s", _label(key))
+ 
+-    def _on_group_done(self, name: str, task: asyncio.Task[None]) -> None:
++    def _on_group_done(self, key: _GroupKey, task: asyncio.Task[None]) -> None:
+         """Handle a group task completing (disconnection or failure)."""
+-        self._groups.pop(name, None)
+-        self._tasks.pop(name, None)
++        self._groups.pop(key, None)
++        self._tasks.pop(key, None)
++        label = _label(key)
+         if task.exception():
+-            log.error("Device group %s failed: %s", name, task.exception())
++            log.error("Device group %s failed: %s", label, task.exception())
+         else:
+-            log.info("Device group %s finished", name)
++            log.info("Device group %s finished", label)
+ 
+     async def _shutdown(self) -> None:
+         """Cancel all group tasks and wait for cleanup."""
+diff --git a/tests/topology/test_manager.py b/tests/topology/test_manager.py
+new file mode 100644
+index 0000000..29af112
+--- /dev/null
++++ b/tests/topology/test_manager.py
+@@ -0,0 +1,40 @@
++"""Tests for device group keying — no hardware required."""
++
++from blocksd.topology.detector import MidiPortPair
++from blocksd.topology.manager import _key, _label
++
++
++class TestGroupKey:
++    def test_identical_names_get_distinct_keys(self) -> None:
++        """CoreMIDI names every Lightpad identically, with no index suffix.
++
++        Two blocks therefore share a port name, and keying groups by name
++        alone silently drops the second one.
++        """
++        first = MidiPortPair(0, 0, "Lightpad BLOCK  Lightpad BLOCK")
++        second = MidiPortPair(1, 1, "Lightpad BLOCK  Lightpad BLOCK")
++
++        assert first.name == second.name
++        assert _key(first) != _key(second)
++        assert len({_key(first), _key(second)}) == 2
++
++    def test_same_pair_is_stable(self) -> None:
++        pair = MidiPortPair(0, 0, "Lightpad BLOCK")
++        assert _key(pair) == _key(MidiPortPair(0, 0, "Lightpad BLOCK"))
++
++    def test_differing_names_get_distinct_keys(self) -> None:
++        """ALSA appends port numbers, which is why Linux never hit this."""
++        alsa_first = MidiPortPair(0, 0, "Lightpad BLOCK:Lightpad BLOCK 20:0")
++        alsa_second = MidiPortPair(1, 1, "Lightpad BLOCK:Lightpad BLOCK 24:0")
++        assert _key(alsa_first) != _key(alsa_second)
++
++
++class TestGroupLabel:
++    def test_label_disambiguates_identical_names(self) -> None:
++        name = "Lightpad BLOCK  Lightpad BLOCK"
++        first = _label(_key(MidiPortPair(0, 0, name)))
++        second = _label(_key(MidiPortPair(1, 1, name)))
++
++        assert first != second
++        assert name in first
++        assert "in=1" in second
+-- 
+2.55.0
+

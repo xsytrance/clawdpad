@@ -83,9 +83,9 @@ but never *loop*.
 
 ## The fixes (vendored)
 
-Both live in `vendor/blocksd`, which is now pip-installed **editable** into
-`.venv` — replacing the PyPI copy, so `pip install -U blocksd` can no longer
-silently revert them. To iterate: edit `vendor/blocksd`, then
+All three live in `blocksd/` — a gitignored clone at the repo root, pip-installed
+**editable** into `.venv`, replacing the PyPI copy so `pip install -U blocksd`
+can no longer silently revert them. To iterate: edit `blocksd/`, then
 `systemctl --user restart blocksd`.
 
 1. `src/blocksd/littlefoot/assembler.py — _resolve_labels()`: add
@@ -122,3 +122,128 @@ firmware-era v1.1.x — zero device faults after the fixed program loaded
    Device `LOG_MESSAGE`s are the only ground truth short of eyes on glass.
 4. A SIGKILLed blocksd (e.g. stop timeout while log-flooded) leaves the block
    confused for a few seconds; the next connect cycle recovers it.
+
+---
+
+# blocksd fix 3 — the macOS two-block collision (2026-07-16)
+
+Found on Rod's MacBook during the `docs/MACBOOK.md` dress rehearsal, on the
+first night two blocks were ever plugged into a Mac. The run-sheet predicted
+this failure in writing before it happened — see its Phase 1 section.
+
+## Symptom
+
+- One block: flawless. Enumerates, streams, renders.
+- Second block plugged in (its own USB-C port, direct to the Mac): **silently
+  absent.** No error, no warning, no log line. blocksd's `discover` returns
+  one device forever.
+
+## Red herrings, in the order we fell for them
+
+1. **"Both blocks are alive"** — `blockctl status` said `+1 more` and
+   `blockctl names` listed XC5G *and* SH8T. Both read clawdpadd's cached
+   `dev_serials` (populated once at render-loop connect), not the hardware.
+   The phantom outlived the block it described by an hour. *Frame acks ≠
+   pixels rendered has a sibling: **daemon state ≠ device presence**.*
+2. **The USB hub** — `ioreg` showed a GenesysLogic USB2.1/3.1 hub in the
+   chain, and a power-budget theory fit every symptom. Innocent: the block
+   enumerated fine behind it. Killed by plugging direct.
+3. **Charge-only USB-C cable** — the classic, and wrong here.
+4. **DNA snap relaying the neighbor** — plausible (one cable, two blocks),
+   but the snapped block was simply never seen either.
+
+## The decisive clue
+
+Walking the stack layer by layer, top-down, instead of theorizing:
+
+```
+ioreg -p IOUSB → 2 × "Lightpad BLOCK" (ROLI Ltd.)   ✅ kernel sees both
+rtmidi ports   → ['Lightpad BLOCK  Lightpad BLOCK',
+                  'Lightpad BLOCK  Lightpad BLOCK']  ✅ two ports…
+                                                     ❗ …IDENTICAL names
+blocksd        → 1 device                            ❌ breaks here
+```
+
+macOS/CoreMIDI does **not** append port numbers. Two ports, byte-identical
+names, no index suffix, nothing to tell them apart but their position.
+
+Then, directly against the hardware:
+
+```python
+scan_for_blocks() → 2 pairs:
+  MidiPortPair(input_port=0, output_port=0, name='Lightpad BLOCK  Lightpad BLOCK')
+  MidiPortPair(input_port=1, output_port=1, name='Lightpad BLOCK  Lightpad BLOCK')
+unique names: 1        # ← the whole bug, in one number
+```
+
+## Root cause
+
+`topology/detector.py` was **never at fault**. Its occurrence counting
+(`detector.py:74-85`) exists precisely to handle duplicate names, and it
+works: two pairs, correct distinct port indices.
+
+`topology/manager.py` threw that work away:
+
+```python
+self._groups: dict[str, _GroupEntry] = {}   # port name → entry
+...
+for pair in detected:
+    if pair.name not in self._groups:       # both pairs → same key
+        self._add_group(pair)               # second block never added
+```
+
+Two pairs, one key. The second block matched the first's key, the add-guard
+skipped it, and it never got a `DeviceGroup` — so it never handshaked, never
+appeared in topology, never existed. The port indices that distinguish them
+were sitting in the pair, unused as a key.
+
+ALSA appends port numbers (`Lightpad BLOCK:Lightpad BLOCK 20:0`), making
+names unique on Linux. **That is the only reason this survived to 2026** —
+upstream is Linux-first, and the bug is invisible there.
+
+## The fix (vendored)
+
+`patches/0003-fix-topology-key-device-groups-by-port-indices-not-p.patch`:
+
+3. `src/blocksd/topology/manager.py`: key `_groups`/`_tasks` on
+   `(name, input_port, output_port)` instead of `name`; add `_label()` so
+   identically-named groups stay distinguishable in logs. Regression test in
+   `tests/topology/test_manager.py`.
+
+Verified on hardware 2026-07-16: MacBook (Apple silicon, macOS 15), two
+Lightpad Block M — `LPM9E1KL3HO9XC5G` (XC5G) + `LPME4HE5UZQ9SH8T` (SH8T),
+both firmware 1.1.0. Before: `discover` → 1 device. After: both enumerate,
+both stream, name tags scroll on both glasses (confirmed visually), `visit`
+migrates home XC5G → SH8T, and **pong spans both blocks**. Stream held for
+minutes with zero reconnects. 340 tests pass; all three patches `git am`
+clean onto a fresh clone.
+
+## Upstream PR notes
+
+- Affects **every macOS user with two identical blocks** — likely most of
+  them, since blocks are sold to be snapped together.
+- The detector already does the hard part; this is a ~12-line manager change.
+- **Known remaining sharp edge:** rtmidi port indices are positional, so
+  unplugging one block renumbers the other, causing a brief remove/re-add of
+  the surviving group. It self-heals next scan. Keying on device *serial*
+  would fix it properly, but the serial is only known **after** the group
+  handshakes — chicken-and-egg. Worth raising in the PR; not solved here.
+- Consider a `log.warning` when two detected pairs share a cleaned name — it
+  would have made this a five-minute bug instead of an evening.
+
+## Debugging playbook (macOS, two blocks)
+
+1. `ps aux | grep blocksd` **first**. Two live instances make every reading
+   meaningless — they both hold CoreMIDI ports (it's multi-client) and both
+   ping the hardware.
+2. **Ctrl-Z is not Ctrl-C.** A suspended blocksd (`ps` state `T`) keeps its
+   ports and **ignores SIGTERM until resumed** — `kill <pid>` appears to do
+   nothing. Use `kill -9`. This cost us a full misdiagnosis cycle.
+3. Ground truth is blocksd's `discover` over its socket, *not* `blockctl
+   status`/`names` (clawdpadd cache — see red herring 1).
+4. Walk the layers top-down and let each one clear itself: `ioreg -p IOUSB`
+   (kernel) → `rtmidi.MidiIn().get_ports()` (CoreMIDI) → `scan_for_blocks()`
+   (detector) → `discover` (manager). The bug is at the first layer that
+   disagrees with the one above it.
+5. `system_profiler SPUSBDataType` returns empty under some sandboxes —
+   `ioreg -p IOUSB -l` is the reliable probe.

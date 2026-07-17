@@ -1,7 +1,25 @@
 /* clawd-core.js — the ROLI BLOCKS protocol + Clawd renderer, in the browser.
  *
- * Third sibling of the proven Python stack and the golden-tested Kotlin
- * port. Held to the same golden vectors (web/test-golden.mjs, node).
+ * ┌─ THIS FILE IS CANONICAL for Clawd's art and poses. ──────────────────┐
+ * │ Change a pose or a costume HERE first, then mirror it into           │
+ * │ clawdpadd.py (and costumes.py). Never the other way round.           │
+ * │                                                                      │
+ * │ Why here: it's the body that runs on the most platforms — every      │
+ * │ browser on Linux/macOS/Windows, over USB or Bluetooth, zero install  │
+ * │ — and docs/MAKING-COSTUMES.md already tells authors to start here.   │
+ * │ Until 2026-07-17 this file said "ported from clawdpadd.py" while     │
+ * │ costumes.py said "mirrored from clawd-core.js": each named the other │
+ * │ as truth, so there was nothing to diff against and drift was         │
+ * │ unresolvable. Poses below still note where they were ported FROM —   │
+ * │ that's provenance, not authority.                                    │
+ * └──────────────────────────────────────────────────────────────────────┘
+ *
+ * Protocol is the opposite: blocksd is the reference and this is a replica.
+ * The daemon emits frames to blocksd over a socket; a browser can't dial a
+ * Unix socket, so the ROLI stack is reimplemented here against WebMIDI. That
+ * duplication is forced and legitimate — it's held honest by golden vectors
+ * (`node web/test-golden.mjs`), which assert byte-identity against blocksd.
+ *
  * With WebMIDI (Chrome/Edge, secure context), a plain web page becomes a
  * complete Clawd host on Linux, macOS, and Windows. Zero install.
  */
@@ -15,6 +33,11 @@ const Protocol = {
   MESSAGE_TYPE: 7, DEVICE_COMMAND: 9, PACKET_INDEX: 16,
   DATA_CHANGE_COMMAND: 3, BYTE_COUNT_FEW: 4, BYTE_COUNT_MANY: 8,
   BYTE_VALUE: 8, BYTE_SEQ_CONTINUES: 1,
+  // device→host topology fields, in wire order
+  PACKET_TIMESTAMP: 32, PROTOCOL_VERSION_BITS: 8, DEVICE_COUNT: 7,
+  CONNECTION_COUNT: 8, SERIAL_CHAR: 7, SERIAL_LENGTH: 16,
+  TOPOLOGY_INDEX: 7, BATTERY_LEVEL: 5, BATTERY_CHARGING: 1,
+  MSG_DEVICE_TOPOLOGY: 0x01,
   MSG_DEVICE_COMMAND: 0x01, MSG_SHARED_DATA_CHANGE: 0x02,
   CMD_BEGIN_API: 0x00, CMD_REQUEST_TOPOLOGY: 0x01, CMD_END_API: 0x02,
   CMD_PING: 0x03,
@@ -76,6 +99,53 @@ class BitReader {
     return value >>> 0;
   }
 }
+
+/** Decode the device→host topology reply — the only way to learn a block's
+ *  real device index. Every packet after the handshake is addressed by it,
+ *  and it is NOT always 0: observed 9 on one Lightpad M and 32 on another
+ *  (2026-07-16). Hardcoding it means talking to a device that isn't there —
+ *  silently, because a wrong index simply goes unanswered.
+ *
+ *  Mirrors blocksd's _handle_topology / _read_topology_device. */
+const TopologyDecoder = {
+  /** @returns {{devices: Array<{index:number, serial:string, battery:number,
+   *              charging:boolean}>}|null} null if not a topology packet */
+  decode(bytes) {
+    const h = Protocol.SYSEX_HEADER;
+    if (bytes.length < h.length + 3) return null;
+    for (let i = 0; i < h.length; i++) if (bytes[i] !== h[i]) return null;
+    if (bytes[bytes.length - 1] !== 0xF7) return null;
+
+    const payload = bytes.slice(h.length + 1, bytes.length - 2);
+    if (Protocol.checksum(payload) !== bytes[bytes.length - 2]) return null;
+
+    const r = new BitReader(payload);
+    r.readBits(Protocol.PACKET_TIMESTAMP);
+
+    const msgType = r.readBits(Protocol.MESSAGE_TYPE);
+    if (msgType !== Protocol.MSG_DEVICE_TOPOLOGY) return null;
+
+    r.readBits(Protocol.PROTOCOL_VERSION_BITS);
+    const numDevices = r.readBits(Protocol.DEVICE_COUNT);
+    r.readBits(Protocol.CONNECTION_COUNT);
+
+    const devices = [];
+    for (let d = 0; d < numDevices; d++) {
+      let serial = "";
+      for (let c = 0; c < Protocol.SERIAL_LENGTH; c++) {
+        const ch = r.readBits(Protocol.SERIAL_CHAR);
+        if (ch !== 0) serial += String.fromCharCode(ch);
+      }
+      devices.push({
+        index: r.readBits(Protocol.TOPOLOGY_INDEX),
+        serial,
+        battery: r.readBits(Protocol.BATTERY_LEVEL),
+        charging: !!r.readBits(Protocol.BATTERY_CHARGING),
+      });
+    }
+    return { devices };
+  },
+};
 
 class PacketBuilder {
   constructor(maxBytes = 64) { this.writer = new BitWriter(maxBytes); this.header = []; }
@@ -301,7 +371,9 @@ class HeapStreamer {
 
 const Clawd = {
   CORAL: [217, 119, 87],
+  CELEBRATE_SECONDS: 2.4,   // clawdpadd.py mirrors this
   costume: "none",
+  size: "full",        // "full" | "mini" — chibi-Clawd roaming a big room
   msg: "",             // marquee text ("" = off)
   FONT: {
     "A":["010","101","111","101","101"],"B":["110","101","110","101","110"],
@@ -661,13 +733,141 @@ const Clawd = {
   },
 
   awake(t) {
-    if (this.msg) return this.marquee(this.msg, t, this.CORAL);
     const breath = 0.72 + 0.28 * Math.sin(t * 2 * Math.PI / 6.5);
     const dx = Math.round(1.5 * Math.sin(t * 0.13));
     const dy = Math.round(0.5 * Math.sin(t * 2 * Math.PI / 6.5));
     const look = Math.round(0.9 * Math.sin(t * 0.31));
     const blink = (t % 4.3) < 0.13;
     return this.dressed(breath, dx, dy, !blink, look, t);
+  },
+
+  /** The glass IS a Micro QR: M3 is exactly 15x15 modules and the dark bezel
+   *  doubles as the quiet zone. Lit = dark modules (inverted; scanners cope).
+   *  Matrices come baked from tools/make_web_qr.py — see qr-data.js for why.
+   *  Mirrored in clawdpadd.py's mood == "qr" branch. */
+  qr(payload) {
+    const rows = (typeof QR_BAKED !== "undefined") ? QR_BAKED[payload] : null;
+    if (!rows) return null;             // caller says something useful
+    const buf = new Uint8Array(675);
+    for (let y = 0; y < 15; y++)
+      for (let x = 0; x < 15; x++)
+        if (rows[y][x] === "#") this.px(buf, x, y, 235, 235, 235);
+    return buf;
+  },
+
+  /** Chibi-Clawd, body's top-left at (px, py). Same soul, quarter the pixels:
+   *  5x4 body, 1px arm nubs (raised when armsUp), two legs, 1px eye holes.
+   *  Mirrored in clawdpadd.py _mini (originally ported from there). */
+  mini(brightness, px, py, eyesOpen, look = 0, armsUp = false) {
+    const buf = new Uint8Array(675);
+    // Do NOT round here: px() truncates (`r | 0`), matching body() and
+    // clawdpadd.py's `int(c * brightness)`. Rounding made chibi exactly one
+    // unit brighter than the desk — invisible to the eye, caught by parity.
+    const c = this.CORAL.map(v => Math.min(255, v * brightness));
+    for (let y = 0; y < 4; y++)
+      for (let x = 0; x < 5; x++) this.px(buf, px + x, py + y, c[0], c[1], c[2]);
+    const ay = py + (armsUp ? 0 : 2);
+    this.px(buf, px - 1, ay, c[0], c[1], c[2]);   // arm nubs poke out each side
+    this.px(buf, px + 5, ay, c[0], c[1], c[2]);
+    this.px(buf, px + 1, py + 4, c[0], c[1], c[2]);   // legs
+    this.px(buf, px + 3, py + 4, c[0], c[1], c[2]);
+    if (eyesOpen) {
+      this.px(buf, px + 1 + look, py + 1, 0, 0, 0);
+      this.px(buf, px + 3 + look, py + 1, 0, 0, 0);
+    }
+    return buf;
+  },
+
+  /** Mini-mode composition: a small Clawd roaming a big room.
+   *  Mirrored in clawdpadd.py _mini_frame (awake branch). */
+  miniAwake(t) {
+    const blink = (t % 4.3) < 0.13;
+    const px = Math.max(1, Math.min(9, Math.round(5 + 4.2 * Math.sin(t * 0.09))));
+    const py = Math.max(0, Math.min(9, Math.round(4 + 3.2 * Math.sin(t * 0.067 + 1.3))));
+    const brightness = 0.72 + 0.28 * Math.sin(t * 2 * Math.PI / 6.5);
+    const look = Math.round(0.9 * Math.sin(t * 0.31));
+    return this.mini(brightness, px, py, !blink, look);
+  },
+
+  miniWave(t) {
+    const pulse = 0.78 + 0.22 * Math.sin(t * 2 * Math.PI * 1.4);
+    const blink = (t % 4.3) < 0.13;
+    return this.mini(pulse, 5, 5, !blink, 0, (t * 2.4) % 1.0 < 0.5);
+  },
+
+  miniCelebrate(rel) {
+    const bounce = Math.abs(Math.sin(rel * Math.PI / 0.6));
+    return this.mini(1.0, 5, 6 - Math.round(3 * bounce), true, 0, true);
+  },
+
+  /** Chibi dancing. The daemon has no dance mood (it's a web/Android ear
+   *  thing), so this has no counterpart to port — it's dance()'s bounce and
+   *  sway on the mini body, so chibi + dance stays chibi. */
+  miniDance(t, energy, bounce) {
+    const sway = Math.round(1.8 * Math.sin(t * 2.2));
+    const brightness = 0.55 + 0.45 * Math.min(1, energy + bounce * 0.5);
+    const blink = (t % 3.1) < 0.1;
+    return this.mini(brightness, 5 + sway, 6 - Math.round(bounce * 2.5),
+                     !blink, 0, bounce > 0.25);
+  },
+
+  /** Clawd asleep: dim, slow breathing, eyes closed, occasional peek.
+   *  Mirrored in clawdpadd.py frame_sleep. (The tab used to inline a flat
+   *  `dressed(0.22, …, false, …)` — he neither breathed nor peeked in the
+   *  browser, only on the desk. Found by cross-body parity, 2026-07-17.) */
+  sleep(t) {
+    const breath = 0.26 + 0.08 * Math.sin(t * 2 * Math.PI / 9.0);
+    const peek = (t % 9.7) < 0.4;
+    return this.dressed(breath, 0, 0, peek, 0, t);
+  },
+
+  miniSleep(t) {
+    const breath = 0.26 + 0.08 * Math.sin(t * 2 * Math.PI / 9.0);
+    const peek = (t % 9.7) < 0.4;
+    return this.mini(breath, 8, 8, peek, 0);
+  },
+
+  /** Clawd hard at work: pacing back and forth, eyes leading the way.
+   *
+   *  `phase` is an ACCUMULATOR in radians, not a timestamp. The host advances
+   *  it at 2.5 + 4.5*energy rad/s, so he paces visibly faster the harder the
+   *  work is — and winds down with it. Never multiply t by a time-varying
+   *  speed: the pacing jumps when the speed changes.
+   *
+   *  Mirrored in clawdpadd.py frame_thinking. */
+  thinking(phase, t, notice = null) {
+    const dx = Math.round(2.2 * Math.sin(phase * 0.5));
+    const vel = Math.cos(phase * 0.5);
+    const look = notice !== null ? notice
+      : (vel > 0.25 ? 1 : (vel < -0.25 ? -1 : 0));
+    const blink = (t % 2.1) < 0.09;   // quick busy blinks
+    return this.dressed(0.9, dx, 0, !blink, look, t);
+  },
+
+  /** Chibi at work: pacing a shorter beat on the same energy clock.
+   *  Mirrored in clawdpadd.py _mini_frame (thinking branch). */
+  miniThinking(phase, t) {
+    const px = 5 + Math.round(3.5 * Math.sin(phase * 0.5));
+    const c = Math.cos(phase * 0.5);
+    const look = c > 0.25 ? 1 : (c < -0.25 ? -1 : 0);
+    return this.mini(0.9, px, 6, (t % 2.1) >= 0.09, look);
+  },
+
+  /** Clawd needs you: right arm raised, waving, gentle pulse.
+   *  Mirrored in clawdpadd.py frame_notify — same body language, both bodies. */
+  wave(t) {
+    const pulse = 0.78 + 0.22 * Math.sin(t * 2 * Math.PI * 1.4);
+    const waveUp = (t * 2.4) % 1.0 < 0.5;
+    const blink = (t % 4.3) < 0.13;
+    return this.dressed(pulse, 0, 0, !blink, 0, t, 0, waveUp ? -2 : -1);
+  },
+
+  /** Task landed: both arms up, jumping. `rel` is seconds since the burst
+   *  began; two full hops per CELEBRATE_SECONDS.
+   *  Mirrored in clawdpadd.py frame_celebrate. */
+  celebrate(rel) {
+    const bounce = Math.abs(Math.sin(rel * Math.PI / 0.6));
+    return this.dressed(1.0, 0, -Math.round(2 * bounce), true, 0, rel, -2, -2);
   },
 
   dance(t, energy, bounce) {
@@ -698,5 +898,5 @@ const Clawd = {
 
 if (typeof module !== "undefined") {
   module.exports = { Protocol, BitWriter, BitReader, PacketBuilder,
-    DataChangeEncoder, HeapDiff, HeapStreamer, Clawd };
+    TopologyDecoder, DataChangeEncoder, HeapDiff, HeapStreamer, Clawd };
 }

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>clawdpad</title>
 <script src="clawd-core.js"></script>
+<script src="qr-data.js"></script>
 <style>
   :root { --bg:#171310; --card:#211b17; --border:#3a2f28; --coral:#D97757;
           --dim:#a89a8f; --ink:#efe6df; }
@@ -34,9 +35,12 @@
           border-radius:22px; padding:16px 0 12px; text-align:center;
           cursor:pointer; user-select:none; }
   .mood:active { transform:scale(.95); }
+  .mood.on { border-color:var(--coral); }
   .mood .e { font-size:30px; } .mood .l { font-size:14px; margin-top:4px; }
-  #robe { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;
-          scrollbar-width:none; }
+  /* Was a single overflow-x row with the scrollbar hidden: on a desktop
+     trackpad there was no way to reach the costumes past the right edge.
+     Wrap instead — every outfit visible, no scrolling at any width. */
+  #robe { display:flex; flex-wrap:wrap; gap:8px; padding-bottom:6px; }
   .fit { flex:0 0 auto; background:var(--card); border:2px solid var(--border);
          border-radius:20px; padding:12px 16px 10px; text-align:center;
          cursor:pointer; user-select:none; }
@@ -51,11 +55,14 @@
 </head>
 <body>
 <header><h1>clawdpad</h1><div id="dot"></div></header>
-<div id="status">the web brain — host over USB (Chrome/Edge) or drive a daemon</div>
+<div id="status">this is Clawd. he's alive right here — no hardware needed.</div>
 
 <div class="card" id="stage"><canvas id="portrait" width="15" height="15"></canvas></div>
 
-<button class="cta" id="hostBtn">🔌 host my block (WebMIDI)</button>
+<!-- Level 0: he lives in the canvas for anyone, on any browser, with nothing
+     plugged in. Hosting a real block is an upgrade, not a gate — ROLI Blocks
+     are discontinued, so most people who meet Clawd will never own one. -->
+<button class="cta" id="hostBtn">🔌 got a Lightpad Block? host it here</button>
 <button class="cta secondary" id="remoteBtn">🛰 drive a remote daemon</button>
 <div id="remote">
   <input id="rUrl" value="http://127.0.0.1:8137" placeholder="daemon URL">
@@ -69,14 +76,17 @@
 <div style="display:flex;gap:8px;margin-bottom:6px">
   <input id="msg" placeholder="type a message…" style="flex:1">
   <button class="cta" style="width:auto;padding:12px 18px;margin:0" id="msgBtn">📣</button>
+  <button class="cta secondary" style="width:auto;padding:12px 18px;margin:0"
+          id="msgClear" title="clear the marquee — back to regular Clawd">✕</button>
 </div>
 
 <div class="label">THE CLAWDROBE</div>
 <div id="robe"></div>
 
-<footer>clawd-core.js · golden-tested against the reference stack ·
-serve via <code>python3 -m http.server</code> for WebMIDI (needs
-localhost/https)</footer>
+<footer>Clawd runs right here — just open this file. To host a real Lightpad
+Block you need Chrome/Edge and a secure context, so serve it with
+<code>python3 -m http.server</code> first.<br>
+clawd-core.js · golden-tested byte-for-byte against blocksd</footer>
 
 <script>
 "use strict";
@@ -88,17 +98,62 @@ const say = (msg, color) => {
 
 /* ── portrait ─────────────────────────────────────────────────────── */
 const ctx = $("portrait").getContext("2d");
-let mode = "sleep";          // sleep | awake | dance
+// He starts awake: you land on a living creature, not a dim rectangle. The
+// daemon starts asleep because it knows the time of day; a tab doesn't, and a
+// visitor who meets a sleeping Clawd just thinks the page is broken.
+let mode = "awake";          // sleep | awake | thinking | dance
 let mic = null, energy = 0, bounce = 0;
 const t0 = performance.now();
 let lastFrame = null;
 
+// One-shots, in seconds on the t0 clock. The daemon owns these as moods in
+// State; here they are just deadlines the frame picker checks. All expire
+// back into whatever mode Clawd was already in.
+let celebrateUntil = 0, waveUntil = 0, qrUntil = 0, qrPayload = "CLAWDPAD";
+
+// Pacing accumulator (radians). NEVER phase = t * speed — a time-varying speed
+// makes the pacing jump. Integrate instead: the daemon advances this at
+// 2.5 + 4.5*energy rad/s, so Clawd paces faster the harder the work is. In the
+// tab nothing reports work yet, so workEnergy stays 0 (Level 3 will feed it).
+let phase = 0, workEnergy = 0, lastPhaseTick = performance.now();
+function advancePhase() {
+  const now = performance.now();
+  phase += (now - lastPhaseTick) / 1000 * (2.5 + 4.5 * workEnergy);
+  lastPhaseTick = now;
+}
+
+// The calm moods. Marquee and costumes take them over; notify/celebrate/qr are
+// never hidden — if Clawd needs you, you see him wave, not a message. This is
+// clawdpadd.py's build_frame rule, gated ONCE here rather than re-checked in
+// every pose (which is how `wave` ended up hiding behind a marquee while
+// `sleep` ignored it entirely).
+const CALM = new Set(["awake", "sleep", "thinking"]);
+
 function currentFrame() {
   const t = (performance.now() - t0) / 1000;
-  if (mode === "dance") return Clawd.dance(t, energy, bounce);
-  if (mode === "awake") return Clawd.awake(t);
-  return Clawd.dressed(0.22, 0, 0, false, 0, t);
+  const mini = Clawd.size === "mini";
+  advancePhase();
+
+  if (t < qrUntil) {
+    const f = Clawd.qr(qrPayload);       // QR takes the whole glass, any size
+    if (f) return f;
+    qrUntil = 0;
+  }
+  if (t < celebrateUntil) {
+    const rel = Clawd.CELEBRATE_SECONDS - (celebrateUntil - t);
+    return mini ? Clawd.miniCelebrate(rel) : Clawd.celebrate(rel);
+  }
+  if (t < waveUntil) return mini ? Clawd.miniWave(t) : Clawd.wave(t);
+  if (mode === "dance")
+    return mini ? Clawd.miniDance(t, energy, bounce) : Clawd.dance(t, energy, bounce);
+
+  if (Clawd.msg && CALM.has(mode)) return Clawd.marquee(Clawd.msg, t, Clawd.CORAL);
+  if (mode === "thinking") return mini ? Clawd.miniThinking(phase, t)
+                                       : Clawd.thinking(phase, t);
+  if (mode === "awake") return mini ? Clawd.miniAwake(t) : Clawd.awake(t);
+  return mini ? Clawd.miniSleep(t) : Clawd.sleep(t);
 }
+const nowT = () => (performance.now() - t0) / 1000;
 (function draw() {
   const f = currentFrame();
   lastFrame = f;
@@ -124,23 +179,52 @@ async function hostBlock() {
   }
   try {
     const access = await navigator.requestMIDIAccess({ sysex: true });
-    let inp = null, out = null;
-    for (const o of access.outputs.values())
-      if (/block|light/i.test(o.name)) out = o;
-    for (const i of access.inputs.values())
-      if (/block|light/i.test(i.name)) inp = i;
-    if (!out) { say("no Lightpad on MIDI — plug it in via USB?", "#c25548"); return; }
+    // CoreMIDI names every block "Lightpad BLOCK  Lightpad BLOCK" — identical,
+    // no index suffix. Pair by ordinal, not name, and never let a later port
+    // clobber an earlier one (that hosted the wrong block, silently).
+    const outs = [...access.outputs.values()].filter(p => /block|light/i.test(p.name));
+    const ins = [...access.inputs.values()].filter(p => /block|light/i.test(p.name));
+    if (!outs.length) { say("no Lightpad on MIDI — plug it in via USB?", "#c25548"); return; }
+    const out = outs[0], inp = ins[0] || null;
+    if (outs.length > 1)
+      say(`${outs.length} blocks found — hosting the first`, "#e0b23e");
     midiOut = out;
     say("handshake…", "#e0b23e");
     const send = p => out.send(p);
+
+    // Listen. Without this there is no way to learn the device index, which is
+    // why it used to be hardcoded to 9 — right for one block, wrong for others.
+    const heard = [];
+    if (inp) inp.onmidimessage = e => heard.push(Uint8Array.from(e.data));
+
     send(Uint8Array.from(Protocol.SERIAL_DUMP_REQUEST));
     await sleep(600);
+    heard.length = 0;
     send(PacketBuilder.requestTopology(0));
-    await sleep(800);
-    send(PacketBuilder.endApi(9)); await sleep(300);
-    for (let i = 0; i < 6; i++) { send(PacketBuilder.beginApi(9)); await sleep(300); }
+    await sleep(900);
+
+    // Ask the block who it is, rather than assuming.
+    let devIndex = null, devSerial = "";
+    for (const packet of heard) {
+      const topo = TopologyDecoder.decode(packet);
+      if (topo && topo.devices.length) {
+        devIndex = topo.devices[0].index;
+        devSerial = topo.devices[0].serial;
+        break;
+      }
+    }
+    if (devIndex === null) {
+      say(inp ? "block never answered the topology request — unplug/replug?"
+              : "no MIDI input port — cannot read the block's device index",
+          "#c25548");
+      return;
+    }
+    say(`${devSerial} is device ${devIndex} — waking…`, "#e0b23e");
+
+    send(PacketBuilder.endApi(devIndex)); await sleep(300);
+    for (let i = 0; i < 6; i++) { send(PacketBuilder.beginApi(devIndex)); await sleep(300); }
     // boot program then live-render forever
-    const hs = new HeapStreamer(9, 1);
+    const hs = new HeapStreamer(devIndex, 1);
     const program = await fetch("program.bin").then(r => r.ok ? r.arrayBuffer() : null)
       .catch(() => null);
     if (!program) { say("program.bin missing — run tools/make_web_assets.py", "#c25548"); return; }
@@ -151,7 +235,7 @@ async function hostBlock() {
     let lastPing = 0;
     host = setInterval(() => {
       const now = performance.now();
-      if (now - lastPing > 300) { send(PacketBuilder.ping(9)); lastPing = now; }
+      if (now - lastPing > 300) { send(PacketBuilder.ping(devIndex)); lastPing = now; }
       hs.setBytes(Protocol.PROGRAM_SIZE, Clawd.rgb565(lastFrame));
       for (const p of hs.drain()) send(p);
     }, 85);
@@ -173,18 +257,51 @@ async function remoteCmd(body) {
 
 /* ── moods & robe ─────────────────────────────────────────────────── */
 const MOODS = [
-  ["🐾", "big clawd", () => { mode = "awake"; remoteCmd({cmd:"size",arg:"full"}); }],
-  ["🐜", "chibi", () => { mode = "awake"; remoteCmd({cmd:"size",arg:"mini"}); }],
-  ["👋", "wave", () => remoteCmd({cmd:"say",arg:"hi",seconds:15})],
-  ["🎉", "jump!", () => remoteCmd({cmd:"anim",arg:"celebrate"})],
-  ["🔳", "QR code", () => remoteCmd({cmd:"qr",arg:"CLAWDPAD"})],
+  // Every button acts locally first so it works while the tab is the host,
+  // then calls the daemon too — remoteCmd is a no-op unless remote mode is
+  // on, so both paths coexist and nothing is silently dead.
+  // The signature behaviour: pacing while Claude works. The daemon drives this
+  // from Claude Code hooks; in the tab it's a toggle so Level 0 can show it off.
+  ["🏃", "at work", () => {
+      mode = (mode === "thinking") ? "awake" : "thinking";
+      $("workBtn")?.classList.toggle("on", mode === "thinking");
+      say(mode === "thinking" ? "pacing — he's hard at work"
+                              : "back to his own life");
+      remoteCmd({cmd:"mode", arg:mode === "thinking" ? "thinking" : "awake"}); }],
+  ["🐾", "big clawd", () => { mode = "awake"; Clawd.size = "full";
+                              $("workBtn")?.classList.remove("on");
+                              say("big clawd");
+                              remoteCmd({cmd:"size",arg:"full"}); }],
+  ["🐜", "chibi", () => { mode = "awake"; Clawd.size = "mini";
+                          say("chibi-clawd, roaming a big room");
+                          remoteCmd({cmd:"size",arg:"mini"}); }],
+  ["👋", "wave", () => { mode = "awake"; waveUntil = nowT() + 15;
+                         say("waving for 15s");
+                         remoteCmd({cmd:"say",arg:"hi",seconds:15}); }],
+  ["🎉", "jump!", () => { mode = "awake";
+                          celebrateUntil = nowT() + Clawd.CELEBRATE_SECONDS;
+                          say("🎉");
+                          remoteCmd({cmd:"anim",arg:"celebrate"}); }],
+  ["🔳", "QR code", () => {
+      mode = "awake";
+      if (Clawd.qr(qrPayload)) {
+        qrUntil = nowT() + 30;
+        say(`scan me — Micro QR of "${qrPayload}" (30s)`);
+      } else {
+        // Baked payloads only; the daemon has the real encoder.
+        say(`no baked QR for "${qrPayload}" — daemon: blockctl qr`, "#e0b23e");
+      }
+      remoteCmd({cmd:"qr",arg:qrPayload}); }],
   ["🎵", "dance mode", toggleDance],
 ];
 for (const [e, l, fn] of MOODS) {
   const d = document.createElement("div");
   d.className = "mood";
+  if (l === "dance mode") d.id = "danceBtn";
+  if (l === "at work") d.id = "workBtn";
   d.innerHTML = `<div class="e">${e}</div><div class="l">${l}</div>`;
-  d.onclick = fn;
+  // Any mood other than dance releases the mic — see stopMic().
+  d.onclick = (l === "dance mode") ? fn : () => { stopMic(true); fn(); };
   $("moods").appendChild(d);
 }
 for (const c of Clawd.COSTUMES) {
@@ -203,14 +320,26 @@ for (const c of Clawd.COSTUMES) {
 }
 
 /* ── dance: mic → energy/beat, same recipe as the Android ears ────── */
+// Releasing the mic was only wired to the dance button itself, so leaving
+// dance via any other mood left the tab listening with the light on.
+function stopMic(silent) {
+  if (!mic) return;
+  clearInterval(mic.timer);
+  mic.stream.getTracks().forEach(t => t.stop());
+  mic = null; energy = 0; bounce = 0;
+  if (mode === "dance") mode = "awake";
+  $("danceBtn")?.classList.remove("on");
+  if (!silent) say("dance over — back to his life");
+}
+
 async function toggleDance() {
-  if (mic) {
-    mic.stream.getTracks().forEach(t => t.stop());
-    mic = null; mode = "awake";
-    say("dance over — back to his life");
+  if (mic) { stopMic(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    say("this browser won't share a mic — dance needs one", "#c25548");
     return;
   }
   try {
+    say("asking for the mic — say yes in Chrome's prompt…", "#e0b23e");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const ac = new AudioContext();
     const src = ac.createMediaStreamSource(stream);
@@ -234,15 +363,30 @@ async function toggleDance() {
       }
     }, 25) };
     mode = "dance";
-    say("🎵 listening through the mic — play something with a beat");
-  } catch (e) { say("mic refused: " + e.message, "#c25548"); }
+    $("danceBtn")?.classList.add("on");
+    say("🎵 listening — play something with a beat (tap again to stop)");
+  } catch (e) {
+    say("mic refused: " + e.message + " — check Chrome's 🔒 address-bar menu",
+        "#c25548");
+  }
 }
 
 $("msgBtn").onclick = () => {
   Clawd.msg = $("msg").value.trim();
   if (mode === "sleep") mode = "awake";
   say(Clawd.msg ? "scrolling: " + Clawd.msg : "cleared the marquee");
+  remoteCmd({cmd:"marquee", arg:Clawd.msg});
 };
+// The marquee used to be a one-way door: once words were on him, clearing the
+// input and re-sending was the only way back, and nothing said so.
+$("msgClear").onclick = () => {
+  $("msg").value = "";
+  Clawd.msg = "";
+  if (mode === "sleep") mode = "awake";
+  say("back to regular clawd");
+  remoteCmd({cmd:"marquee", arg:""});
+};
+$("msg").addEventListener("keydown", e => { if (e.key === "Enter") $("msgBtn").onclick(); });
 $("hostBtn").onclick = hostBlock;
 $("remoteBtn").onclick = () => {
   remoteOn = !remoteOn;
@@ -252,6 +396,18 @@ $("remoteBtn").onclick = () => {
     : "🛰 drive a remote daemon";
   if (remoteOn && mode === "sleep") mode = "awake";
 };
+
+/* ── Level 0: he works for everyone; hosting is the upgrade ──────────── */
+// Say the WebMIDI truth up front rather than after a click that fails. Safari
+// has no WebMIDI and no prospect of it (verified 2026-07-17) — but Clawd
+// himself runs fine there, and that's the part worth being clear about.
+(function greet() {
+  if (navigator.requestMIDIAccess) return;
+  $("hostBtn").textContent = "🔌 hosting a block needs Chrome or Edge";
+  $("hostBtn").style.opacity = "0.55";
+  say("this browser has no WebMIDI, so it can't drive a real block — " +
+      "but Clawd lives here just fine. Play with him.");
+})();
 </script>
 </body>
 </html>
