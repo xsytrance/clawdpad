@@ -110,6 +110,64 @@ pose, item logged for the diary/stats screen.
   glass, or any remote control that would make him a gadget instead of a
   creature. The app keeps up with him; it doesn't puppet him.
 
+## Battle mode 🐛🚀🧪
+
+Rod's ask, 2026-07-17. Rock-paper-scissors as **Bug · Ship · Test** — a test
+catches a bug, a bug blocks the ship, and "ship it" overrules the test. Clawd's
+hand comes from his real state (energy from the Claude Code hooks, hunger from
+the soul, battery), so you're playing against your own workday, and his gait
+tells during the countdown. Phone is your hand, the glass is the arena, the
+daemon is the referee.
+
+Full design, including the daemon additions it needs: **[BATTLE.md](BATTLE.md)**.
+
+## Updates — "tap here to check for updates"
+
+Rod's ask, 2026-07-17: upgrade straight from the app. One button in Settings,
+and it must **say what it found** — "You're up to date" is a feature, not a
+non-event. Never update silently: this app talks to a creature, and a creature
+that changes behaviour without telling you is a bug report.
+
+**There are two kinds of update and the button must know the difference.** This
+is the trap:
+
+| kind | mechanism | user sees |
+|---|---|---|
+| **JS-only** (screens, poses, battle rules) | `expo-updates` OTA — `checkForUpdateAsync()` → `fetchUpdateAsync()` → `reloadAsync()` | "Update ready — restart", ~seconds |
+| **Native** (new BLE/MIDI module, new SDK) | a whole new APK; OTA **cannot** ship it | "New version — download APK" |
+
+Set `checkAutomatically: NEVER` so the button drives it rather than a surprise
+at launch, and gate OTA on `runtimeVersion` — an OTA bundle pushed onto a
+mismatched native binary is how you brick a demo the morning of.
+
+**Sideloading is the awkward part, and it's Android's rule, not ours.** We're
+not on Play (yet), so a native update means downloading an APK and installing
+it: `REQUEST_INSTALL_PACKAGES` + a `PackageInstaller` flow, and the OS will
+show its own scary "install unknown apps" screen. Options, in order of my
+preference:
+
+1. **Play Store internal testing track** — free, boring, real update UX, and
+   Charles can be a tester with an email address. If this app has any future
+   beyond Rod's Pixel, this is the answer.
+2. **Self-hosted from the daemon** — `GET /app/latest` returns
+   `{version, url, sha256, notes, min_daemon_api}`, served over the tailnet.
+   No Expo account, no store, and it fits LEVELS.md rule 4 (local-first): your
+   creature's updates come from your own machine. Delightful, and about a day.
+3. **A GitHub release URL** — simplest, works today, leaks nothing but the tag.
+
+**Check compatibility, not just version.** The contract between app and daemon
+is the HTTP API (see "Separate repo" above), so the updater must answer *"will
+this app still talk to my daemon?"* — hence `min_daemon_api` in the manifest.
+An app that updates itself into being unable to reach Clawd is worse than an
+app that never updates. If they'd mismatch, say so **before** downloading, and
+say which side needs the upgrade.
+
+**The Clawd-shaped version:** the check isn't a spinner — he *fetches*. Tap,
+and he trots off the left edge of the glass, comes back with the answer in his
+mouth (envelope prop = update waiting, nothing = you're current), and the
+restart is him waking up new. Body language, not a progress bar. The daemon
+gets the same news over the event stream, so the block tells you even when
+your phone's in your pocket.
 
 ## Field notes — first live Android host session (2026-07-15, 7-8am)
 

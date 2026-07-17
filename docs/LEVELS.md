@@ -300,6 +300,10 @@ the integration reports an event, Clawd emits body language.
     the human taps to let him in. Consent (rule 4) as body language rather than
     a permission dialog. This is the pattern the whole L3/L4 trust story should
     copy.
+23. **Battle mode.** *(controller today → L4)* Bug · Ship · Test — RPS where
+    Clawd's hand comes from your actual workday and his gait tells during the
+    countdown. Buildable now against one block; the version worth having is two
+    desks, two blocks, Rod vs Charles. Full design: [BATTLE.md](BATTLE.md).
 
 ---
 
