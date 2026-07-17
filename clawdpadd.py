@@ -95,6 +95,8 @@ PONG_SPEED = 11.0          # ball px/s at serve; hits speed it up a touch
 PONG_PADDLE = 4            # paddle height in px (2px wide — chunky rules)
 ROLL_CALL_SECONDS = 4.0    # each glass scrolls its own name (config
                            # "block_names": {serial: name}; default = last 4)
+REUNION_SECONDS = 4.2      # DNA snap: Clawd jumps, the other glass beams
+                           # a heart — they missed each other
 
 # Clawd's geometry, scaled from the official Claude Code icon SVG
 # (viewBox 24x24; same rect decomposition dazzler's make_clawd.py uses):
@@ -164,6 +166,7 @@ class State:
         self.game = None            # pong state dict (cmd game), or None
         self.block_names = {}       # serial -> display name (config)
         self.roll_call_until = 0.0  # monotonic: glasses wear name tags
+        self.reunion_until = 0.0    # monotonic: the DNA-snap celebration
         self.away_flair = False     # render thread only: he's not home,
                                     # so he wears his traveling scarf
         self.started = time.time()
@@ -282,11 +285,19 @@ class State:
                     self.last_say_chime = now
                     self.player.play("chime")
             elif cmd == "anim":
-                if str(msg.get("arg", "")).lower() != "celebrate":
-                    return {"ok": False, "error": "only 'celebrate' exists"}
-                self.celebrate(now)
-                if self.jingle_on_celebrate and self.player:
-                    self.player.auto_jingle(now)
+                arg = str(msg.get("arg", "")).lower()
+                if arg == "reunion":
+                    self.reunion_until = (time.monotonic()
+                                          + REUNION_SECONDS)
+                    if self.player:
+                        self.player.play("jingle")
+                elif arg == "celebrate":
+                    self.celebrate(now)
+                    if self.jingle_on_celebrate and self.player:
+                        self.player.auto_jingle(now)
+                else:
+                    return {"ok": False,
+                            "error": "anims: celebrate, reunion"}
             elif cmd == "play":
                 name = str(msg.get("arg", "jingle")).lower()
                 if self.player is None or name not in MELODIES:
@@ -472,6 +483,14 @@ class State:
                     self.home = to
                 return None
             return frm, to, p
+
+    def start_reunion(self, mono):
+        """The blocks just snapped together; celebrate once, not per-event."""
+        with self.lock:
+            if mono < self.reunion_until:
+                return False
+            self.reunion_until = mono + REUNION_SECONDS
+            return True
 
     def name_of(self, uid):
         """A block's display name: configured, or the serial's last 4."""
@@ -951,6 +970,25 @@ def frame_empty(t):
     return buf
 
 
+def _glyph_big(buf, key, col):
+    """A font glyph at double size, centered — score digits, the heart."""
+    rows = _MARQUEE_FONT[key]
+    for r in range(5):
+        for c in range(3):
+            if rows[r][c] == "1":
+                for oy in (0, 1):
+                    for ox in (0, 1):
+                        _blit(buf, 4 + c * 2 + ox, 2 + r * 2 + oy, col)
+
+
+def frame_heart(t):
+    """A big pulsing heart — the other half of a reunion."""
+    buf = bytearray(W * H * 3)
+    pulse = 0.55 + 0.35 * math.sin(t * 2 * math.pi * 1.1)
+    _glyph_big(buf, "<3", tuple(int(c * pulse) for c in CORAL))
+    return buf
+
+
 def frame_pong(g, block_i, mono):
     """One glass of the pong field: outer-edge paddles, a 2x2 ball.
 
@@ -962,14 +1000,7 @@ def frame_pong(g, block_i, mono):
     n = g["n"]
     if mono < g["serve_until"]:
         s = g["score"][0] if (n > 1 and block_i == 0) else g["score"][1]
-        rows = _MARQUEE_FONT[str(s % 10)]
-        col = tuple(int(c * 0.55) for c in CORAL)
-        for r in range(5):
-            for c in range(3):
-                if rows[r][c] == "1":
-                    for oy in (0, 1):
-                        for ox in (0, 1):
-                            _blit(buf, 4 + c * 2 + ox, 2 + r * 2 + oy, col)
+        _glyph_big(buf, str(s % 10), tuple(int(c * 0.55) for c in CORAL))
         return buf
     pad = tuple(int(c * 0.9) for c in CORAL)
     half = PONG_PADDLE // 2
@@ -1034,6 +1065,7 @@ _MARQUEE_FONT = {
     "!": ("010","010","010","000","010"), "?": ("111","001","011","000","010"),
     "-": ("000","000","111","000","000"), ".": ("000","000","000","000","010"),
     " ": ("000","000","000","000","000"), ":": ("000","010","000","010","000"),
+    "<3": ("000","101","111","111","010"),
 }
 
 
@@ -1114,12 +1146,19 @@ def build_frames(mood, t, phase, state, touch, mono):
         devices = list(state.devices)
         marquee = state.marquee
         roll_call = state.roll_call_until
+        reunion = state.reunion_until
+        home_now = state.home
         serials = dict(state.dev_serials)
         home_serial_cfg = state.home_serial
     game = state.game_snapshot()
     if game and devices:
         return {u: frame_pong(game, i, mono)
                 for i, u in enumerate(devices)}
+    if devices and mono < reunion:
+        # the snap: Clawd jumps for joy, every other glass beams a heart
+        rel = mono - (reunion - REUNION_SECONDS)
+        return {u: frame_celebrate(rel % CELEBRATE_SECONDS)
+                if u == home_now else frame_heart(t) for u in devices}
     if devices and mono < roll_call:
         # name tags: each glass scrolls its own name
         return {u: _marquee_frame(state.name_of(u), t) for u in devices}
@@ -1176,8 +1215,15 @@ def discover_blocks(sock):
         if not chunk:
             raise ConnectionError("blocksd closed during discover")
         buf += chunk
-    return [dev for dev in json.loads(buf.split(b"\n")[0]).get("devices", [])
-            if dev.get("grid_width") and dev.get("grid_height")]
+    devs, seen = [], set()
+    for dev in json.loads(buf.split(b"\n")[0]).get("devices", []):
+        # DNA-snapped while both stay on USB: the same block can appear
+        # through both port groups — one Clawd per glass, not per cable
+        if dev.get("grid_width") and dev.get("grid_height") \
+                and dev.get("uid") not in seen:
+            seen.add(dev.get("uid"))
+            devs.append(dev)
+    return devs
 
 
 def peek_device_count():
@@ -1307,7 +1353,9 @@ def touch_loop(state):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.connect(path)
-                sock.sendall(b'{"type": "subscribe", "events": ["touch"]}\n')
+                sock.sendall(b'{"type": "subscribe",'
+                             b' "events": ["touch", "topology"]}\n')
+                prev_links = -1     # -1: unknown until the first report
                 buf = b""
                 while True:
                     chunk = sock.recv(4096)
@@ -1319,6 +1367,15 @@ def touch_loop(state):
                         try:
                             ev = json.loads(line)
                         except ValueError:
+                            continue
+                        if ev.get("type") == "topology_changed":
+                            links = len(ev.get("connections", []))
+                            if links and prev_links <= 0 and \
+                                    state.start_reunion(time.monotonic()):
+                                log("DNA snap — reunion!")
+                                if state.player:
+                                    state.player.play("jingle")
+                            prev_links = links
                             continue
                         if ev.get("type") != "touch":
                             continue
