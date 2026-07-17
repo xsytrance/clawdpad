@@ -52,14 +52,33 @@ Linux box, otherwise back at Rod's place):
   One USB cable powers the pair; the master relays its neighbor.
 - **Option B — two USB cables** into the same computer. Works identically.
 
-Either way, within ~15 seconds clawdpadd notices the topology change and
-**every block gets a Clawd — twins in perfect lockstep**: both breathe,
-blink, pace, and jump together; pet either block and *both* lean toward
-the finger (they feel each other — enjoy the reaction when people notice).
-Independent personalities, cross-block chase/dance/fight scenes are the
-next milestone (DUET.md tier 1); today is the twins demo.
+Either way, within ~15 seconds clawdpadd notices the topology change.
 
-`./blockctl status` shows `+1 twin(s)` when the second block is live.
+**Update 2026-07-16 — verified live with Charles's borrowed block, the
+twins are individuals now (✅ all of it):**
+
+- **Name tags**: when a block joins, each glass scrolls its own name
+  (`block_names` in config; `blockctl names` replays it).
+- **One Clawd, two rooms**: he lives on the home glass; the other keeps a
+  dim ember night-light. Every few minutes he wanders over — walks off
+  one glass, crosses the bezel, walks onto the other. Tap the empty
+  glass to summon him. `blockctl visit` forces a hop.
+- **The traveling scarf**: on any glass that isn't home he wears his
+  scarf. One glance says whose block he's on.
+- **The reunion** 💕: DNA-snap the blocks and the moment the magnets
+  click he jumps for joy while the other glass beams a pulsing heart,
+  jingle and all (`blockctl anim reunion` to preview).
+- **The merged house**: while snapped, the wall is gone — he roams the
+  full 30-wide room and sits straddling the seam, one eye per glass.
+  Unsnap and the separate rooms (ember, scarf, visits) come back.
+- **Pong** 🏓: `blockctl game pong` — one field across both glasses, a
+  finger on each glass is a paddle, chime + giant score digit per point.
+  One block alone plays wall-ball. `blockctl game off` ends it.
+- Notify/celebrate/QR mirror on all glasses; a marquee flows across the
+  row as one wide ribbon (`blockctl marquee "HI CHARLES"`).
+
+`./blockctl status` shows `+1 more (home ROD)` when the second block is
+live; `blockctl names` prints the roster.
 
 ## If the Mac path fails
 
@@ -68,13 +87,39 @@ next milestone (DUET.md tier 1); today is the twins demo.
 - **Legion Go**: WSL is a dead end for MIDI; *native Windows* Python +
   rtmidi (WinMM) is plausible but untested — same 🧪 tier as macOS,
   prep it before relying on it.
-- Rod's Pixel 10/7 as host: ❌ until the mobile-host app exists (the
-  block's protocol needs a program that owns USB MIDI; Android requires
-  a native app for that — it's on the Pro roadmap).
+- Rod's Pixel 10/7 as host: ✅ over USB-C — clawdpad-app v0.3 verified
+  (Clawd animating, hosted by the Pixel, no computer). BLE from Android
+  is 🧪: the old "firmware gates API mode over BLE" theory was RETRACTED
+  (it was the packet-index off-by-one, fixed in v0.3) — retest pending.
 
-## Wireless status (asked 2026-07-15)
+## Wireless status (updated 2026-07-16)
 
-❌ Not yet. The path (ROADMAP → Bluetooth): Linux BLE-MIDI pairing first
-(BlueZ + PipeWire, this machine has the stack), adaptive diff-streaming at
-8–12 fps, USB↔BLE failover. First attempt is scheduled for the home rig —
-it does not block the office demo, which is USB either way.
+🧪 Closer than we thought. The v0.3 index fix retracted the only known
+blocker (see APP.md findings). Paths, most promising first:
+
+- **Charles's MacBook** (the fun retest): macOS has native BLE MIDI —
+  Audio MIDI Setup → MIDI Studio → Bluetooth → connect "Lightpad BLOCK".
+  The paired block becomes a normal CoreMIDI device that **Chrome's
+  WebMIDI can see**, so the clawdpad web page (`web/index.html` → "host
+  my block") and PRISM's Lightpad Out should drive it *wirelessly*.
+  Expect to lower fps — BLE MIDI is ~4–10 KB/s; the diff streaming was
+  built for exactly this.
+- **Charles's iPhone**: iOS speaks BLE MIDI natively (pair through
+  GarageBand or any Bluetooth-MIDI-capable app), so the block works as
+  a wireless *instrument* from the phone today. Hosting Clawd from an
+  iPhone needs a native iOS app (no WebMIDI in iOS browsers, and
+  clawdpad-app is Android) — a Swift sibling is a roadmap item.
+- **Linux (home rig)**: BlueZ + PipeWire expose BLE MIDI as a MIDI node;
+  if the port name matches, blocksd may need only a lower-fps profile.
+
+## PRISM × Lightpad (2026-07-16)
+
+Branch `lightpad-out` in the prism repo: `js/lightpad.js` streams PRISM's
+output canvas to every connected Lightpad over Web MIDI (no bridge, no
+build step — house rules), 15×15 @ ~12 fps as heap diffs. Params:
+`lightpad.enabled` / `lightpad.gain` / `lightpad.tile` (N blocks tile
+into an LED wall). Blocks left in factory MPE mode remain MIDI LEARN
+controllers — mix display + control roles across his four blocks.
+`tools/lightpad-selftest.mjs` pins the encoder to golden vectors from
+real-hardware captures. Works on the MacBook in Chrome/Edge (Safari has
+no WebMIDI), USB now, BLE per above once verified.

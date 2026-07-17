@@ -3,6 +3,19 @@
 *Design note, 2026-07-15. Ships in Basic (snap mode) and Pro (federation).
 Prompted by: "my coworker charles has one of these."*
 
+> **Status 2026-07-16 — tier 1 landed, with a twist.** Built and verified
+> live with a real second block (Charles's, borrowed): per-uid frames and
+> touch, name-tag roll call, home/away with the ember night-light and the
+> traveling scarf, walk-across visits + summon by tap, the DNA-snap
+> **reunion** (jump + heart), the **merged house** (linked blocks render
+> one wide room; he sits straddling the seam), cross-glass **pong**, and
+> the marquee ribbon spanning the row. The twist vs. the spec below: it
+> shipped with ONE full-size Clawd who treats the blocks as *rooms of a
+> house*, not two mini Clawds — greet/dance/chase/fight duo scenes with
+> mini actors remain open (they become the guest-identity story when a
+> visiting block brings its own creature). See CHARLES.md for the demo
+> playbook.
+
 ## Why this is very possible
 
 ROLI blocks have **DNA connectors** — the magnetic edges. Snapped together,
