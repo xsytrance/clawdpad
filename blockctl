@@ -27,6 +27,7 @@ Commands:
   sessions                             print the session registry
   clear                                clear notify + manual mode
   where                                print daemon socket path (if alive)
+  doctor [--json]                      check everything and print the fixes
 """
 
 import json
@@ -97,6 +98,49 @@ def tool_event(kind, sid, payload):
         send({"cmd": "event", "kind": "wave", "sid": sid})
 
 
+def doctor_cmd(as_json=False):
+    """The terminal face of doctor.py. The module returns data and never
+    prints; this decides what a human sees. (The L2 app's first-run screen is
+    the other face — same list, Fix buttons instead of commands.)
+
+    Unlike every other blockctl command, this one is LOUD when things are
+    broken — that's the job. It still exits 0 on warnings: only a real failure
+    is worth failing a script over.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import doctor
+    except Exception as e:
+        print(f"doctor unavailable: {e}", file=sys.stderr)
+        return 1
+    checks = doctor.run()
+    if as_json:
+        print(json.dumps([c.as_dict() for c in checks], indent=2))
+        return 1 if any(c.bad for c in checks) else 0
+
+    marks = {doctor.OK: "✅", doctor.WARN: "⚠️ ", doctor.FAIL: "❌",
+             doctor.SKIP: "· "}
+    for c in checks:
+        detail = f" — {c.detail}" if c.detail else ""
+        print(f"{marks.get(c.status, '?')} {c.name}{detail}")
+        # The fix is the entire point: print it under the thing it fixes, where
+        # it can be read and pasted, not in a summary nobody scrolls to.
+        if c.fix and c.status in (doctor.FAIL, doctor.WARN):
+            print(f"     ↳ {c.fix}")
+    bad = [c for c in checks if c.bad]
+    warn = [c for c in checks if c.status == doctor.WARN]
+    print()
+    if bad:
+        print(f"❌ {len(bad)} problem(s) — fix the first one and run me again; "
+              "they cascade.")
+        return 1
+    if warn:
+        print(f"✅ Clawd should be alive. {len(warn)} warning(s) above.")
+        return 0
+    print("✅ everything checks out — he's home.")
+    return 0
+
+
 def main(argv):
     if not argv:
         print(__doc__)
@@ -108,6 +152,9 @@ def main(argv):
         if reply:
             print(socket_path())
         return 0
+
+    if cmd == "doctor":
+        return doctor_cmd("--json" in args)
 
     if cmd == "event-hook":
         kind = args[0] if args else "prompt"

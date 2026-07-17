@@ -100,6 +100,16 @@ that restart himself.
   multiply t by a time-varying speed — it jumps).
 - `blockctl` — stdlib CLI, claudectl-compatible, silent exit 0 when the
   daemon is absent. Test/fail regexes for post-tool energy live here.
+  `blockctl doctor` is the exception to the silence: it's loud when things are
+  broken, because that's the job.
+- `doctor.py` — the nine checks a new owner trips on, as a **library**: `run()`
+  returns `Check` objects and **never prints**. blockctl renders them; `--json`
+  is the machine face; the L2 app's first-run screen is meant to be the third
+  (docs/LEVELS.md idea #2). A check that prints can't be a wizard. Every check
+  catches its own exception — it only ever runs on broken machines. Its patch
+  probes must key off symbols the patches *introduce* (`code_base`,
+  `bitmap_led_program`, `_GroupKey`), never words from their commit messages:
+  the first draft probed for "port_indices" and called a healthy tree broken.
 - `patches/` — the three blocksd fixes as git am-able patches (for sharing
   and the upstream PR). 0003 is macOS-only: CoreMIDI names every block
   identically, so keying device groups by port name drops the second one

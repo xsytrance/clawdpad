@@ -22,10 +22,19 @@ and dazzler soul link.
 
 Recommended next, in order:
 
-1. **`blockctl doctor`** — one command that checks everything a new user
-   trips on: blocksd running? block detected? patches applied (probe for the
-   assembler fix)? user in `audio` group? frames actually rendering (device
-   log check)? Prints fixes, not just failures. *Adoption lives or dies here.*
+1. ~~**`blockctl doctor`**~~ — ✅ **shipped 2026-07-17.** Nine checks: Python
+   ≥3.13, blocksd editable (not a PyPI copy that silently reverts the fixes),
+   all three patches present, blocksd answering, a block on the wire (asked of
+   blocksd, never blockctl's cache), `audio` group, clawdpadd alive, Claude Code
+   hooks wired, and device-log faults. Prints the fix under each failure.
+   Built as a **library with two faces** (LEVELS idea #2): `doctor.py` returns
+   data and never prints, `blockctl doctor` renders it, `--json` for anything
+   else, and the L2 app's first-run screen is the third face for free.
+   Its patch probes are also a regression test on the vendored fork — they run
+   in `tools/check.sh`, so a dropped fix goes red there instead of on a dark
+   glass at 2am. **Still to verify: the negative paths.** Every check has only
+   ever been seen passing (or skipping) on a healthy tree; the FAIL branches are
+   argued, not observed. Break things on purpose one evening.
 2. **`install.sh`** — venv + patched blocksd + systemd units + (optionally)
    the Claude Code hooks JSON merge, one command.
 3. ~~**Battery body language**~~ — ✅ **shipped 2026-07-17.** Sluggish pacing

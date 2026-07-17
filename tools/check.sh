@@ -32,7 +32,8 @@ echo "conformance — every port must speak bit-identical ROLI"
 step "golden vectors: clawd-core.js vs blocksd" node web/test-golden.mjs
 
 echo "parity — the desk and the browser must draw the same creature"
-step "clawdpadd.py vs clawd-core.js (28 poses)" "$PY" tools/parity.py
+step "clawdpadd.py vs clawd-core.js (41 cases, poses × costumes)" \
+  "$PY" tools/parity.py
 
 echo "renderers — every pose must draw something"
 step "web poses (full + mini)" node tools/webpreview.mjs
@@ -56,6 +57,18 @@ import costumes
 assert len(costumes.COSTUMES) > 0
 buf = costumes.dressed("robot", 1.0, 0, 0, True, 0, 1.0)
 assert len(buf) == 675 and sum(buf) > 0, "robot costume is blank"
+'
+# doctor must survive a broken machine — that is the only machine it ever meets.
+# Its patch probes double as a regression test on the vendored fork: if someone
+# pip installs over it, or a rebase drops a fix, this goes red here rather than
+# on a dark glass at 2am.
+step "doctor runs + finds the three blocksd patches" "$PY" -c '
+import doctor
+checks = {c.name: c for c in doctor.run()}
+p = checks["blocksd patches"]
+assert p.status == doctor.OK, f"patch probe says: {p.detail}"
+assert all(c.fix for c in checks.values() if c.status == doctor.FAIL), \
+    "a failing check with no fix — doctor prints fixes, not failures"
 '
 
 if [ -d blocksd ]; then
