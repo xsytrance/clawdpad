@@ -3,6 +3,13 @@
 *Written 2026-07-15. Basic ships first and stays small and delightful; Pro is
 the ecosystem play. Nothing here is promised to anyone but Clawd.*
 
+> **See [LEVELS.md](LEVELS.md) (2026-07-17) — the capability ladder (L0 tab →
+> L1 daemon → L2 app → L3 integrations → L4 colony), which is the newer spine.**
+> Basic ≈ L0–L2, Pro ≈ L3–L4; the Pro section below is L3's feature list
+> written early. The two taxonomies should merge into one before they start
+> lying to each other — LEVELS.md "How this maps onto Basic/Pro" has the
+> proposal, and it's Rod's call.
+
 ## Basic (v1.x) — "he just lives there"
 
 The bar for Basic: clone → run → a creature lives on your desk. Every

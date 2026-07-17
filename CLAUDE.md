@@ -5,7 +5,21 @@ project (MIT); Rod's install lives in `~/claudeblock` (dir predates the
 clawdpad rename — units/hooks point here, rename is cosmetic-only pending).
 Sister project `~/dazzler` (same soul on a MatrixPortal S3). Read `README.md`
 for the public story, `docs/PLAN.md` for history, `docs/BLOCKSD-FIXES.md`
-for the protocol war stories.
+for the protocol war stories, `docs/LEVELS.md` for where this is all going
+(L0 tab → L1 daemon → L2 app → L3 integrations → L4 colony).
+
+**Hosts own a block; controllers poke a host.** Exactly one host per block,
+always. Hosts: the tab (web/), the daemon (clawdpadd.py), and the future app.
+Controllers: `docs/APP.md` (phone), `docs/WEAR.md` (watch) — they talk to the
+daemon's HTTP API and never touch the glass. Say which one any new thing is.
+
+**Platforms port the transport, never the art.** A new body needs exactly one
+new thing: a `send(bytes)` that reaches a block. clawd-core.js already draws
+Clawd *and* speaks bit-identical ROLI (golden vectors prove it), so a native
+shell writes a MIDI transport and hands bytes to the JS — it never reimplements
+poses. That keeps parity.py a 2-body problem no matter how many platforms ship.
+Note WebMIDI is Chromium-only: Electron has it, WKWebView (Tauri/macOS,
+Capacitor/iOS) does not. See docs/LEVELS.md "the webview trap".
 
 ## Architecture (systemd --user services)
 
