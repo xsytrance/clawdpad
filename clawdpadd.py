@@ -352,7 +352,7 @@ class State:
                 arg = str(msg.get("arg", "awake")).lower()
                 if arg == "notify":
                     self.notify_until = now + float(msg.get("seconds", 30))
-                elif arg in ("awake", "thinking", "sleep"):
+                elif arg in ("awake", "thinking", "sleep", "sad"):
                     self.manual = arg
                     self.notify_until = 0.0
                 else:
@@ -986,6 +986,14 @@ def _mini_frame(mood, t, phase, touch, vigor):
             breath = min(0.7, breath + 0.45 * touch[2])
             peek = True
         return _mini(breath, 8, 8, "open" if peek else "closed", 0)
+    if mood == "sad":   # same slump, quarter the pixels (Clawd.miniSad)
+        breath = 0.46 + 0.08 * math.sin(t * 2 * math.pi / 8.0)
+        sad_blink = (t % 5.0) < 0.55
+        look = -1 if math.sin(t * 0.19) > 0.55 else 0
+        if touch is not None:
+            breath = min(0.85, breath + 0.3 * touch[2])
+            look = 0
+        return _mini(breath, 8, 9, "closed" if sad_blink else "open", look)
     if touch is not None:  # he walks toward your finger, glowing
         tx, ty, tz = touch
         px = max(1, min(9, round(tx * (W - 1)) - 2))
@@ -1090,6 +1098,32 @@ def frame_notify(t, vigor=1.0):
     blink = (t % 4.3) < 0.13
     return _clawd(pulse, 0, 0, "closed" if blink else "open", 0,
                   arm_r_dy=-2 if wave_up else -1)
+
+
+def frame_sad(t, touch=None):
+    """The one emotion he was missing: slumped, arms drooped, heavy blinks.
+
+    Deliberately quiet — no flash, no colour change. This replaced the old
+    red error flash, and that's the whole point: it's a *feeling*, not an
+    alarm. He sags, looks away, and his eyes close a beat too long. You
+    read it the way you read a person across a room.
+
+    Use sparingly (repeated failures, a starving soul) — scarcity is what
+    makes it land. Petting comforts him: he brightens and looks at your
+    finger, but he stays slumped. You can't pet the sad out of him in one
+    go, and he shouldn't pretend otherwise.
+
+    Mirrored from web/clawd-core.js Clawd.sad (canonical).
+    """
+    breath = 0.46 + 0.08 * math.sin(t * 2 * math.pi / 8.0)
+    blink = (t % 5.0) < 0.55
+    look = -1 if math.sin(t * 0.19) > 0.55 else 0
+    if touch is not None:
+        _, _, tz = touch
+        breath = min(0.85, breath + 0.3 * tz)
+        look = 0                      # he looks up at you
+    return _clawd(breath, 0, 1, "closed" if blink else "open", look,
+                  arm_l_dy=2, arm_r_dy=2)
 
 
 def frame_celebrate(rel):
@@ -1282,6 +1316,8 @@ def build_frame(mood, t, phase, state, touch):
         return frame_thinking(phase, t, touch, notice)
     if mood == "sleep":
         return frame_sleep(t, touch)
+    if mood == "sad":
+        return frame_sad(t, touch)
     if mood == "notify":
         return frame_notify(t, state.pet_vigor() * state.battery_vigor(t))
     if mood == "celebrate":

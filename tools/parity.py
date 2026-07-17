@@ -59,6 +59,11 @@ CASES = [
     ("notify/wave t=0.3",  "m.frame_notify(0.3)",           "Clawd.wave(0.3)"),
     ("celebrate rel=0",    "m.frame_celebrate(0.0)",        "Clawd.celebrate(0.0)"),
     ("celebrate rel=0.3",  "m.frame_celebrate(0.3)",        "Clawd.celebrate(0.3)"),
+    # sad: t=0.3 catches a heavy blink, t=2.0 has the eyes open, t=9.0 is the
+    # look-away. Three points because all three are the pose.
+    ("sad t=0.3 (blink)",  "m.frame_sad(0.3)",              "Clawd.sad(0.3)"),
+    ("sad t=2.0",          "m.frame_sad(2.0)",              "Clawd.sad(2.0)"),
+    ("sad t=9.0 (away)",   "m.frame_sad(9.0)",              "Clawd.sad(9.0)"),
     ("mini awake t=3",     "m._mini_frame('awake', 3.0, 0, None, 1.0)",
                            "Clawd.miniAwake(3.0)"),
     ("mini notify t=0.3",  "m._mini_frame('notify', 0.3, 0, None, 1.0)",
@@ -69,6 +74,8 @@ CASES = [
                            "Clawd.miniThinking(2.0, 0.3)"),
     ("mini celebrate r=.3", "m._mini_frame('celebrate', 0.3, 0, None, 1.0)",
                             "Clawd.miniCelebrate(0.3)"),
+    ("mini sad t=2",       "m._mini_frame('sad', 2.0, 0, None, 1.0)",
+                           "Clawd.miniSad(2.0)"),
     ("marquee 'HI'",       "m._marquee_frame('HI', 1.0)",
                            "Clawd.marquee('HI', 1.0, Clawd.CORAL)"),
 ]

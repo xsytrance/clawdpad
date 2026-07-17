@@ -40,6 +40,7 @@ Every pose here is a pure function `(args) → 675-byte RGB888`. No I/O, no stat
 | thinking | `Clawd.thinking(phase, t)` | `frame_thinking(phase, t)` | pacing, eyes leading the way |
 | notify | `Clawd.wave(t)` | `frame_notify(t)` | right arm up, waving, gentle pulse |
 | celebrate | `Clawd.celebrate(rel)` | `frame_celebrate(rel)` | both arms up, jumping |
+| sad | `Clawd.sad(t)` | `frame_sad(t)` | slumped, arms drooped, heavy blinks, looks away |
 | marquee | `Clawd.marquee(text, t, c)` | `_marquee_frame(text, t)` | words scroll across him |
 | qr | `Clawd.qr(payload)` | `build_frame` mood `"qr"` | the glass becomes a Micro QR |
 | chibi | `Clawd.mini*` | `_mini`/`_mini_frame` | quarter the pixels, roaming a big room |

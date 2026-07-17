@@ -10,7 +10,7 @@ Commands:
   event-hook <start|prompt|stop|end>   consume Claude Code hook JSON on stdin
   event-hook <pre-tool|post-tool>      tool activity — feeds Clawd's work
                                        energy (he paces faster)
-  mode <awake|thinking|sleep|notify>   set mood manually
+  mode <awake|thinking|sleep|sad|notify>   set mood manually
   say "text" [-t SECONDS]              notify (wave + chime); tap to ack
   anim <celebrate|reunion>             jump with arms up | the snap moment
   play [jingle|hello|chime]            play a melody (jingle also jumps)
@@ -130,7 +130,7 @@ def main(argv):
 
     if cmd == "mode":
         arg = (args[0] if args else "awake").lower()
-        if arg not in ("awake", "thinking", "sleep", "notify"):
+        if arg not in ("awake", "thinking", "sleep", "notify", "sad"):
             print(f"unknown mode: {arg}", file=sys.stderr)
             return 1
         send({"cmd": "mode", "arg": arg})

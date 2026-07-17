@@ -862,6 +862,36 @@ const Clawd = {
     return this.dressed(pulse, 0, 0, !blink, 0, t, 0, waveUp ? -2 : -1);
   },
 
+  /** The one emotion he was missing: slumped, arms drooped, heavy blinks.
+   *
+   *  Deliberately quiet — no flashing, no colour change. This replaced the old
+   *  red error flash, and the whole point is that it's a *feeling*, not an
+   *  alarm: he sags, he looks away, his eyes close a beat too long. You read
+   *  it the way you read a person across a room.
+   *
+   *  Use sparingly (repeated failures, a starving soul). Scarcity is what
+   *  makes it land — a Clawd who mopes often is just a mopey Clawd.
+   *
+   *  Mirrored in clawdpadd.py frame_sad. */
+  sad(t) {
+    // shallow and slow — a smaller breath than awake, dimmer, but never dark
+    const breath = 0.46 + 0.08 * Math.sin(t * 2 * Math.PI / 8.0);
+    // heavy: closures ~4x longer than awake's 0.13s flick
+    const blink = (t % 5.0) < 0.55;
+    // he looks down and away, and holds it
+    const look = Math.sin(t * 0.19) > 0.55 ? -1 : 0;
+    return this.dressed(breath, 0, 1, !blink, look, t, 2, 2);
+  },
+
+  /** Chibi moping: same slump, quarter the pixels.
+   *  Mirrored in clawdpadd.py _mini_frame (sad branch). */
+  miniSad(t) {
+    const breath = 0.46 + 0.08 * Math.sin(t * 2 * Math.PI / 8.0);
+    const blink = (t % 5.0) < 0.55;
+    const look = Math.sin(t * 0.19) > 0.55 ? -1 : 0;
+    return this.mini(breath, 8, 9, !blink, look);
+  },
+
   /** Task landed: both arms up, jumping. `rel` is seconds since the burst
    *  began; two full hops per CELEBRATE_SECONDS.
    *  Mirrored in clawdpadd.py frame_celebrate. */

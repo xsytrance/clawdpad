@@ -42,8 +42,13 @@ function show(buf, title) {
 }
 
 const POSES = {
-  sleep:     { full: t => Clawd.dressed(0.22, 0, 0, false, 0, t), mini: t => Clawd.miniSleep(t) },
+  // Was `Clawd.dressed(0.22, 0, 0, false, 0, t)` — a flat sleeping Clawd who
+  // never breathed or peeked. That's the exact bug POSES.md records as fixed in
+  // index.html; the preview tool kept its own copy and went on lying. Ask the
+  // pose, never re-implement it here.
+  sleep:     { full: t => Clawd.sleep(t),        mini: t => Clawd.miniSleep(t) },
   awake:     { full: t => Clawd.awake(t),        mini: t => Clawd.miniAwake(t) },
+  sad:       { full: t => Clawd.sad(t),          mini: t => Clawd.miniSad(t) },
   // thinking takes a phase accumulator, not t — pass a fixed phase to preview
   thinking:  { full: t => Clawd.thinking(2.0, t), mini: t => Clawd.miniThinking(2.0, t) },
   wave:      { full: t => Clawd.wave(t),         mini: t => Clawd.miniWave(t) },

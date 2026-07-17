@@ -44,9 +44,14 @@ Recommended next, in order:
 6. **Pinch to resize** — triple-tap toggles full/mini today; the block is
    multitouch, so a two-finger pinch (shrink) / spread (grow) gesture is
    the natural upgrade. Needs per-index touch tracking.
-7. **Sad pose** — the one missing emotion: slumped body (dy +1), drooped
-   arms (+2), heavy blinks. Used sparingly: repeated command failures,
-   starving soul. (This was the old red-flash; now it's a feeling.)
+7. ~~**Sad pose**~~ — ✅ **shipped 2026-07-17.** Slumped body (dy +1), drooped
+   arms (+2), heavy blinks, and he looks away and holds it. `blockctl mode sad`;
+   `Clawd.sad`/`miniSad` in clawd-core.js, `frame_sad` on the desk, byte-identical
+   (parity 32/32). Petting comforts him but doesn't straighten him up — you
+   can't pet the sad out of him in one go. **Nothing triggers it automatically
+   yet**: the failure-streak and starving-soul hooks are still to write, and
+   until they exist he only mopes when asked. Scarcity is the whole design, so
+   that wiring deserves its own thought rather than a threshold picked today.
 
 ## Bluetooth (the cable-cutting arc)
 
