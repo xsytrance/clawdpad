@@ -7,9 +7,15 @@ just waits; when you return, replug and press each block's power button).*
 
 ## Phase 1 — the Python stack on macOS (USB, the CoreMIDI unknown)
 
+Two traps found at the 2026-07-16 rehearsal, both baked in below: macOS's
+stock `python3` is 3.9 but blocksd needs ≥ 3.13 (hence `python3.13` and
+brew), and `git am` refuses on a machine with no git identity set.
+
 ```bash
 git clone https://github.com/xsytrance/clawdpad && cd clawdpad
 git clone https://github.com/hyperb1iss/blocksd
+git config --global user.name  # prints nothing? set name + email first,
+                               # or git am below will refuse to commit
 (cd blocksd && git am ../patches/*.patch)
 
 # blocksd needs Python >= 3.13. macOS ships /usr/bin/python3 = 3.9.6, so a
