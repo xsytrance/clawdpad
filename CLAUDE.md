@@ -1,5 +1,54 @@
 # clawdpad — working notes for Claude
 
+<!-- CANON:BEGIN v1 2026-08-07 — managed by the Singularity Event. Edit the source, not this block. -->
+## The Dominion — standing canon (v1)
+
+**Theme.** Everything in this fleet is named and spoken in the register of
+**magic, science, and military** — *"Doctor Doom meets Master Chief."* Imperial,
+arcane, martial, over real engineering. Music is the soul that runs through all
+three. The Lexicon (`hermes360/docs/codex/lexicon.json`) is the source of truth
+for names; a themed name with no Lexicon entry is a bug, not creativity.
+
+> **The Iron Rule.** The theme is a **naming / lore / presentation layer over
+> stable technical identifiers. It NEVER renames the substrate.** Ports stay
+> numeric in code; unit names, API paths, file names, env vars, and DB tables are
+> unchanged. Themed names appear in agent speech, UIs, docs, and conversation —
+> never in code identifiers. Renaming the substrate would break every running
+> system, backup, and timer on the fleet.
+
+Core terms: fleet → **the Dominion** · owner → **the Sovereign** · host →
+**Realm** · PRIME → **the Citadel** · exxo-1 → **the Foundry** · tailnet →
+**the Ley Lines** · service → **Engine** · agent → **Champion** · port →
+**Portal** · endpoint → **Gate** · code → **Spell** · function → **Incantation**
+· database → **Vault** · config → **Ward** · secret → **Seal** · doc → **Tome**
+· log/receipt → **Chronicle** · backup → **Wardstone** · monitor → **the Augury**
+· LLM → **Familiar** · notification → **a Sending** · Singularity → **the Grand
+Archive**. *(Top names blessed by the Sovereign 2026-08-07.)*
+
+**Reporting.** Every substantive reply ends with a `## TL;DR` — last, after the
+detail, 3–5 bullets. Lead with anything the Sovereign must act on. Corrections
+go **in** the TL;DR, never buried in the body.
+
+**ISI.** On a big feature, a big change, a security posture, a schema change, or
+a new project: **Intent** (what is he really trying to achieve?), **Sanity** (is
+this the right approach? say so plainly, once), **Improvement** (is there a
+better way? what would I add?). Verify with commands — measured beats plausible.
+ISI is advisory, not a veto: raise it, recommend, then build. If he reaffirms,
+that's the decision. Not permission to stall, and not permission to gold-plate.
+
+**Secrets.** `~/.config/<system>/env`, mode 600. Never in a chat box, a commit,
+or a screenshot. Exposed once = rotate the same day. `docs/SECURITY.md` is law.
+
+**The Five Foundations.** One network (the tailnet) · one wallet (OpenRouter,
+named key per system) · one secrets pattern · one memory (this) · one ark
+(exxo-1). Full text: `docs/MASTER_PLAN.md`.
+
+**Birth and death.** A new system gets, on day 0: `git init`, an env file (600),
+a named key if it spends, a **Lexicon entry**, a row in `docs/SYSTEMS.md`, and an
+Eye config if it has a UI. *A system not in the registry does not exist.* Cold
+for 60 days → `~/archive/`. Archiving is honorable; drift is not.
+<!-- CANON:END -->
+
 Clawd (the Claude Code mascot) living on a ROLI Lightpad Block M. Public
 project (MIT); Rod's install lives in `~/claudeblock` (dir predates the
 clawdpad rename — units/hooks point here, rename is cosmetic-only pending).
