@@ -49,6 +49,30 @@ Eye config if it has a UI. *A system not in the registry does not exist.* Cold
 for 60 days → `~/archive/`. Archiving is honorable; drift is not.
 <!-- CANON:END -->
 
+<!-- BULLETIN:BEGIN 2026-08-08T12:42 — managed by the Singularity Event. Facts, not rules. Edit the registry, not this block. -->
+## The Dominion — the roster (41 systems)
+
+You are in **claudeblock**. Claude living on the ROLI Lightpad Block — dress him up, shrink him, morph him into other characters.
+
+**Tell the Archive anything that matters:** `tell-singularity "…"` (`--birth <sys>` · `--death <sys>` · `--change <sys>` · `--ask "…"`)
+**Find out what you missed:** `~/singularity/scripts/brief.sh`
+
+### Born or changed in the last 14 days
+- **planet-studio** — 2026-08-08 — satellite (music) — Android studio companion for x1c7.com: the Wall, galaxy, cover studio…
+- **audiex** (the Warhorn) — 2026-08-08 — satellite (music) — standalone offline-first player for the Suno catalog; the planet-studio…
+- **stem-racer** — 2026-08-07 — satellite (music/game) — stem-based racing game; APK served from ~/apk-share.
+- **cadence** — 2026-08-07 — the Dominion's ceremony bus (Portal 8114). Any Engine posts a rite; it decides how it is felt…
+- **vgclan** — 2026-08-02 — satellite — VG Clan revival site; re-recruit the founders, deploy to vgclan.x1c7.com.
+- **NEXUS** — 2026-07-31 — command vault (obsidian) — Gradle project with mobile-web application components.
+- **memguard** — 2026-07-31 — utility — guards against memory exhaustion on Prime; the GPU is shared (16 GB) and a runaway…
+- **singularity** (the Grand Archive) — 2026-07-31 — the Grand Archive. System of record for a life: every chat, doc, photo and receipt, dated…
+
+### The full roster
+`sayhai` · `stem-racer` · `va-academy` · `vgclan` · `cadence` · `entangled-private` · `entangled-tools` · `xsyverse` · `fft-psx-vera` · `hermes360-c2-artifacts` · `argus-risk-adviser` · `clawdpad-app` · `aurex16pp` · `ember-lite` · `kinetica` · `planet-studio` · `audiex` · `vAIb` · `pokepad` · `ossicle-backups` · `Hermes` · `ossicle` · `singularity-integration` · `x1c7.com` · `AGENOR-Horology` · `atlas` · `entangled` · `undertale-vera` · `eye-of-thundera` · `hermes360` · `xsywatch` · `NEXUS` · `memguard` · `singularity` · `skynet` · `xsynet` · `ossicle-worktrees` · `dazzler` · `claudeblock` · `ember-pro` · `prism`
+
+Live: `GET :8801/api/event/roster` · Canonical: `singularity/docs/SYSTEMS.md`
+<!-- BULLETIN:END -->
+
 Clawd (the Claude Code mascot) living on a ROLI Lightpad Block M. Public
 project (MIT); Rod's install lives in `~/claudeblock` (dir predates the
 clawdpad rename — units/hooks point here, rename is cosmetic-only pending).
