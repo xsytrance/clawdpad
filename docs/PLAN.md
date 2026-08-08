@@ -154,7 +154,7 @@ later (see idea #15) is one more line.
 - Plug the Lightpad in over USB-C; confirm it enumerates (`amidi -l`, `aconnect -l`).
 - Install blocksd (`pipx install` / clone), run it, verify: keepalive holds the block
   awake, touch events stream, and a test frame paints all 225 pixels.
-- Set it up as a systemd user service (like `claude-display-sync.timer`'s sibling).
+- Set it up as a systemd user service. (This once pointed at `claude-display-sync.timer` as the model — that timer was RETIRED 2026-08-08 and replaced by `auguryd.service`. Copy that instead.)
 - Measure real-world FPS and color fidelity (RGB565 banding check with gradients).
 - **Exit criteria:** block stays awake indefinitely and we can push arbitrary frames from Python.
 
